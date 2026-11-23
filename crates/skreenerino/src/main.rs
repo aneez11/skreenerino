@@ -614,8 +614,8 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             if last_nack_poll.elapsed() >= std::time::Duration::from_millis(40) {
                 last_nack_poll = std::time::Instant::now();
                 let missing = nack_scheduler.poll(std::time::Instant::now());
-                if !missing.is_empty() {
-                    if let Some(writer) = control_writer.as_mut() {
+                if let Some(writer) = control_writer.as_mut() {
+                    if !missing.is_empty() {
                         let msg = skreen_proto::ControlMessage::Nack {
                             stream: skreen_proto::StreamId("main".into()),
                             sequences: missing.clone(),
@@ -623,6 +623,21 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                         if let Ok(bytes) = skreen_proto::encode_control(&msg) {
                             let _ = skreen_transport::control::write_frame(writer, &bytes).await;
                         }
+                    }
+
+                    // Feed the presenter's adaptive bitrate controller with the
+                    // loss rate observed in this reporting window.
+                    let expected = datagrams.max(1);
+                    let loss_permille =
+                        ((missing.len() as u64 * 1000) / expected).min(1000) as u32;
+                    let report = skreen_proto::ControlMessage::QualityReport {
+                        stream: skreen_proto::StreamId("main".into()),
+                        rtt_ms: 0,
+                        loss_permille,
+                        decode_ms: 0,
+                    };
+                    if let Ok(bytes) = skreen_proto::encode_control(&report) {
+                        let _ = skreen_transport::control::write_frame(writer, &bytes).await;
                     }
                 }
             }
@@ -698,6 +713,7 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
 
 
 

@@ -8,7 +8,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 
 | Capability | Evidence |
 |---|---|
-| Workspace builds and tests pass | `cargo test --workspace` → 37 tests |
+| Workspace builds and tests pass | `cargo test --workspace` → 48 tests |
 | Screen capture (Windows) | `spike` wrote 20 H.264 frames; `serve` streams the primary monitor |
 | H.264 encode (openh264, screen-content tune) | `skreen-codec::h264::OpenH264Encoder` |
 | H.264 decode | `watch` decoded 150 frames in release |
@@ -42,8 +42,8 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 | Linux capture (PipeWire/X11) | Backend detection scaffolded; capture not implemented |
 | Hardware encoders (NVENC/QSV/VideoToolbox/VAAPI) | Not implemented; software openh264 only |
 | Audio over the wire | Codec works locally; not yet muxed into the media stream |
-| NACK retransmission / FEC | Loss tracking exists; retransmission not wired |
-| Adaptive bitrate driving | Tier logic tested; not yet fed by live receiver reports |
+| NACK retransmission | Implemented end to end: viewer detects gaps, presenter resends from a bounded buffer |
+| Adaptive bitrate | Driven by live viewer quality reports; encoder rebuilds at the new bitrate |
 | Consent UI | Gate logic exists; no on-screen prompt |
 | Android/iOS clients | Not started |
 | On-device target validation | Needs a second machine and real LAN conditions |
@@ -58,3 +58,4 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+

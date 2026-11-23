@@ -35,6 +35,8 @@ pub struct RoomShared {
     pub stop: Arc<AtomicBool>,
     /// How many packets were dropped because no viewer was connected.
     pub idle_frames: Arc<AtomicU64>,
+    /// Most recent receiver quality report, if any.
+    pub latest_report: Arc<std::sync::RwLock<Option<skreen_transport::quality::QualityReport>>>,
 }
 
 impl RoomShared {
@@ -44,11 +46,23 @@ impl RoomShared {
             keyframe_seq: Arc::new(AtomicU64::new(0)),
             stop: Arc::new(AtomicBool::new(false)),
             idle_frames: Arc::new(AtomicU64::new(0)),
+            latest_report: Arc::new(std::sync::RwLock::new(None)),
         }
     }
 
     pub fn request_keyframe(&self) {
         self.keyframe_seq.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a receiver quality report; the encode thread applies ABR changes.
+    pub fn report_quality(&self, report: skreen_transport::quality::QualityReport) {
+        if let Ok(mut slot) = self.latest_report.write() {
+            *slot = Some(report);
+        }
+    }
+
+    pub fn take_report(&self) -> Option<skreen_transport::quality::QualityReport> {
+        self.latest_report.write().ok().and_then(|mut slot| slot.take())
     }
 }
 
@@ -149,6 +163,15 @@ async fn viewer_task(
                         Ok(ControlMessage::Nack { sequences, .. }) => {
                             let _ = nack_tx.send(sequences);
                         }
+                        Ok(ControlMessage::QualityReport { rtt_ms, loss_permille, decode_ms, .. }) => {
+                            shared_ctrl.report_quality(
+                                skreen_transport::quality::QualityReport {
+                                    rtt_ms,
+                                    loss_permille,
+                                    decode_ms,
+                                },
+                            );
+                        }
                         Ok(_) => {}
                         Err(_) => {}
                     },
@@ -242,6 +265,12 @@ fn encode_thread(
     let mut frame = Some(first);
     let mut last = Instant::now();
     let mut seen_requests = shared.keyframe_seq.load(Ordering::Relaxed);
+    let mut abr = skreen_transport::quality::AdaptiveBitrate::new(
+        skreen_transport::quality::QualityTier::High,
+        50,
+        30,
+    );
+    let mut applied_tier = skreen_transport::quality::QualityTier::High;
 
     while !shared.stop.load(Ordering::Relaxed) {
         let Some(f) = frame.take() else { break };
@@ -250,6 +279,24 @@ fn encode_thread(
         if requests != seen_requests {
             encoder.force_keyframe();
             seen_requests = requests;
+        }
+
+        // Apply adaptive bitrate from the latest receiver report.
+        if let Some(report) = shared.take_report() {
+            if let Some(tier) = abr.observe(&report, Instant::now()) {
+                if tier != applied_tier {
+                    if let Err(e) = encoder.set_bitrate_bps(tier.bitrate_bps()) {
+                        tracing::warn!("bitrate change failed: {e}");
+                    } else {
+                        applied_tier = tier;
+                        tracing::info!(
+                            bitrate = tier.bitrate_bps(),
+                            "adaptive bitrate changed quality tier"
+                        );
+                        shared.request_keyframe();
+                    }
+                }
+            }
         }
 
         for packet in encoder.encode(&f.rgba, f.width, f.height, f.timestamp_us)? {
@@ -272,6 +319,8 @@ fn encode_thread(
     tracing::info!("encoder thread stopped");
     Ok(())
 }
+
+
 
 
 

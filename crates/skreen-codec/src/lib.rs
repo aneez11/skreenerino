@@ -47,6 +47,8 @@ pub mod h264 {
         width: usize,
         height: usize,
         pending_keyframe: bool,
+        bitrate_bps: u32,
+        fps: f32,
     }
 
     impl OpenH264Encoder {
@@ -56,7 +58,33 @@ pub mod h264 {
                 .max_frame_rate(FrameRate::from_hz(30.0))
                 .usage_type(UsageType::ScreenContentRealTime);
             let encoder = H264Encoder::with_api_config(OpenH264API::from_source(), config)?;
-            Ok(Self { encoder, width: width as usize, height: height as usize, pending_keyframe: false })
+            Ok(Self {
+                encoder,
+                width: width as usize,
+                height: height as usize,
+                pending_keyframe: false,
+                bitrate_bps,
+                fps: 30.0,
+            })
+        }
+
+        pub fn bitrate_bps(&self) -> u32 { self.bitrate_bps }
+
+        /// Rebuild the encoder with a new target bitrate (used by adaptive bitrate).
+        /// Returns `true` when the change was applied.
+        pub fn set_bitrate_bps(&mut self, bitrate_bps: u32) -> Result<bool> {
+            if bitrate_bps == self.bitrate_bps {
+                return Ok(false);
+            }
+            let config = EncoderConfig::new()
+                .bitrate(BitRate::from_bps(bitrate_bps))
+                .max_frame_rate(FrameRate::from_hz(self.fps))
+                .usage_type(UsageType::ScreenContentRealTime);
+            self.encoder =
+                H264Encoder::with_api_config(OpenH264API::from_source(), config)?;
+            self.bitrate_bps = bitrate_bps;
+            self.pending_keyframe = true;
+            Ok(true)
         }
     }
 
@@ -67,12 +95,13 @@ pub mod h264 {
                 self.encoder = H264Encoder::with_api_config(
                     OpenH264API::from_source(),
                     EncoderConfig::new()
-                        .bitrate(BitRate::from_bps(8_000_000))
-                        .max_frame_rate(FrameRate::from_hz(30.0))
+                        .bitrate(BitRate::from_bps(self.bitrate_bps))
+                        .max_frame_rate(FrameRate::from_hz(self.fps))
                         .usage_type(UsageType::ScreenContentRealTime),
                 )?;
                 self.width = w;
                 self.height = h;
+                self.pending_keyframe = true;
             }
             if self.pending_keyframe {
                 self.encoder.force_intra_frame();
@@ -108,4 +137,5 @@ pub mod h264 {
         }
     }
 }
+
 
