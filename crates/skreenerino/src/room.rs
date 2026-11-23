@@ -340,6 +340,10 @@ fn encode_thread(
         "room presenter started"
     );
 
+    if let Ok(selection) = skreen_codec::select::select_encoder() {
+        tracing::info!("{}", selection.summary());
+    }
+
     let mut encoder = OpenH264Encoder::new(first.width, first.height, cfg.bitrate)?;
     let frame_budget = Duration::from_secs_f64(1.0 / cfg.fps.max(1) as f64);
     let mut frame = Some(first);
@@ -399,6 +403,7 @@ fn encode_thread(
     tracing::info!("encoder thread stopped");
     Ok(())
 }
+
 
 
 

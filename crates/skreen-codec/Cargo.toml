@@ -8,6 +8,7 @@ authors.workspace = true
 [features]
 default = []
 h264 = ["dep:openh264"]
+hw-encoders = []
 
 [dependencies]
 anyhow.workspace = true
@@ -15,3 +16,4 @@ thiserror.workspace = true
 bytes.workspace = true
 tracing.workspace = true
 openh264 = { version = "0.9", optional = true }
+
