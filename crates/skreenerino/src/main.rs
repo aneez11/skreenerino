@@ -615,16 +615,39 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
         let mut reassembler = Reassembler::default();
         let mut decoder = OpenH264Decoder::new()?;
 
-        // Control channel for NACKs and keyframe requests back to the presenter.
-        let mut control_writer = quic::open_control(&conn)
-            .await
-            .ok()
-            .map(|(send, _recv)| send);
+        // Control stream: NACKs, quality reports, and RTT heartbeats.
+        let control = quic::open_control(&conn).await.ok();
+        let (maybe_writer, maybe_reader) = match control {
+            Some((send, recv)) => (Some(send), Some(recv)),
+            None => (None, None),
+        };
+        let mut control_writer = maybe_writer;
+        let rtt_ms = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+        if let Some(mut recv) = maybe_reader {
+            let rtt_state = rtt_ms.clone();
+            tokio::spawn(async move {
+                while let Ok(Some(frame)) = skreen_transport::control::read_frame(&mut recv).await {
+                    if let Ok(skreen_proto::ControlMessage::Heartbeat { ts_ms }) =
+                        skreen_proto::decode_control(&frame)
+                    {
+                        let now_ms = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        rtt_state.store(
+                            now_ms.saturating_sub(ts_ms) as u32,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                    }
+                }
+            });
+        }
+        let rtt_state = rtt_ms.clone();
         let mut nack_scheduler =
             crate::nack::NackScheduler::new(64, std::time::Duration::from_millis(40));
         let mut last_nack_poll = std::time::Instant::now();
-
-        #[cfg(feature = "viewer")]
+        let mut last_decode_ms = 0u32;
+        let mut heartbeat_sent = std::time::Instant::now();
         let _viewer = viewer::start("skreenerino viewer")?;
 
         let mut datagrams = 0u64;
@@ -661,6 +684,7 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                 last_nack_poll = std::time::Instant::now();
                 let missing = nack_scheduler.poll(std::time::Instant::now());
                 if let Some(writer) = control_writer.as_mut() {
+                    let writer = &mut *writer;
                     if !missing.is_empty() {
                         let msg = skreen_proto::ControlMessage::Nack {
                             stream: skreen_proto::StreamId("main".into()),
@@ -677,9 +701,9 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                     let loss_permille = ((missing.len() as u64 * 1000) / expected).min(1000) as u32;
                     let report = skreen_proto::ControlMessage::QualityReport {
                         stream: skreen_proto::StreamId("main".into()),
-                        rtt_ms: 0,
+                        rtt_ms: rtt_state.load(std::sync::atomic::Ordering::Relaxed),
                         loss_permille,
-                        decode_ms: 0,
+                        decode_ms: last_decode_ms,
                     };
                     if let Ok(bytes) = skreen_proto::encode_control(&report) {
                         let _ = skreen_transport::control::write_frame(writer, &bytes).await;
@@ -698,7 +722,11 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                 continue;
             };
 
-            match decoder.decode(&frame_bytes) {
+            let decode_started = std::time::Instant::now();
+            let decoded = decoder.decode(&frame_bytes);
+            let decode_ms = decode_started.elapsed().as_millis().min(u32::MAX as u128) as u32;
+            last_decode_ms = decode_ms;
+            match decoded {
                 Ok(Some(frame)) => {
                     let now = std::time::Instant::now();
                     if first_frame_at.is_none() {

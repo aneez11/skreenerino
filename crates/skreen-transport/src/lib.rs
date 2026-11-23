@@ -142,6 +142,12 @@ pub mod quic {
         Ok(conn.open_bi().await?)
     }
 
+    /// Accept a control stream opened by the peer (duplex: replies go on the
+    /// returned sender, requests arrive on the returned receiver).
+    pub async fn accept_control(conn: &Connection) -> Result<(SendStream, RecvStream)> {
+        Ok(conn.accept_bi().await?)
+    }
+
     pub async fn send_datagram(conn: &Connection, payload: Bytes) -> Result<()> {
         conn.send_datagram(payload)?;
         Ok(())

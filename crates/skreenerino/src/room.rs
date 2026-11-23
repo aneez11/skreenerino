@@ -207,22 +207,36 @@ async fn viewer_task(
     // The control reader hands retransmission requests to the send loop.
     let (nack_tx, mut nack_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u64>>();
 
-    if let Ok((mut control, mut remote_control)) = quic::open_control(&conn).await {
-        let hello = skreen_proto::encode_control(&ControlMessage::Hello {
-            version: PROTOCOL_VERSION,
-            device: DeviceId("presenter".into()),
-            caps: Capabilities {
-                codecs: vec!["h264".into()],
-                max_width: 7680,
-                max_height: 4320,
-                max_fps: 60,
-                platform: std::env::consts::OS.into(),
-            },
-        })?;
-        let _ = control::write_frame(&mut control, &hello).await;
-
+    // The viewer opens the control stream; the presenter accepts it.
+    // Accept the viewer's control stream in a background task, so a missing or
+    // late control channel can never block video delivery.
+    {
         let shared_ctrl = shared.clone();
+        let conn_ctrl = conn.clone();
         tokio::spawn(async move {
+            let Ok(Ok((mut control, mut remote_control))) =
+                tokio::time::timeout(Duration::from_secs(5), quic::accept_control(&conn_ctrl))
+                    .await
+            else {
+                tracing::debug!("no viewer control stream; continuing without feedback");
+                return;
+            };
+
+            let hello = skreen_proto::encode_control(&ControlMessage::Hello {
+                version: PROTOCOL_VERSION,
+                device: DeviceId("presenter".into()),
+                caps: Capabilities {
+                    codecs: vec!["h264".into()],
+                    max_width: 7680,
+                    max_height: 4320,
+                    max_fps: 60,
+                    platform: std::env::consts::OS.into(),
+                },
+            });
+            if let Ok(bytes) = hello {
+                let _ = control::write_frame(&mut control, &bytes).await;
+            }
+
             loop {
                 match control::read_frame(&mut remote_control).await {
                     Ok(Some(frame)) => match skreen_proto::decode_control(&frame) {
@@ -238,11 +252,19 @@ async fn viewer_task(
                             decode_ms,
                             ..
                         }) => {
+                            tracing::debug!(rtt_ms, loss_permille, decode_ms, "quality report");
                             shared_ctrl.report_quality(skreen_transport::quality::QualityReport {
                                 rtt_ms,
                                 loss_permille,
                                 decode_ms,
                             });
+                        }
+                        Ok(ControlMessage::Heartbeat { ts_ms }) => {
+                            if let Ok(bytes) =
+                                skreen_proto::encode_control(&ControlMessage::Heartbeat { ts_ms })
+                            {
+                                let _ = control::write_frame(&mut control, &bytes).await;
+                            }
                         }
                         Ok(_) => {}
                         Err(_) => {}
@@ -260,19 +282,17 @@ async fn viewer_task(
 
     loop {
         tokio::select! {
-            nack = nack_rx.recv() => {
-                if let Some(sequences) = nack {
-                    let (hits, misses) = {
-                        let recovered = retransmit.recover(&sequences);
-                        for datagram in recovered {
-                            let body = skreen_proto::media::encode_media(&datagram)?;
-                            let _ = quic::send_datagram(&conn, Bytes::from(body)).await;
-                            shared.stats.datagrams.fetch_add(1, Ordering::Relaxed);
-                        }
-                        retransmit.stats()
-                    };
-                    tracing::debug!(?hits, ?misses, "answered NACK");
+            // `Some` pattern: this branch disables itself when the control task
+            // ends instead of returning `None` forever and starving video.
+            Some(sequences) = nack_rx.recv() => {
+                let recovered = retransmit.recover(&sequences);
+                for datagram in recovered {
+                    let body = skreen_proto::media::encode_media(&datagram)?;
+                    let _ = quic::send_datagram(&conn, Bytes::from(body)).await;
+                    shared.stats.datagrams.fetch_add(1, Ordering::Relaxed);
                 }
+                let (hits, misses) = retransmit.stats();
+                tracing::debug!(?hits, ?misses, "answered NACK");
             }
             packet = rx.recv() => {
                 let packet = match packet {
