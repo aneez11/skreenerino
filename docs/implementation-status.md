@@ -30,7 +30,7 @@ Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a de
 | mDNS advertise/browse | Implemented with `mdns-sd`; verified by `discover` and `join` |
 | Adaptive bitrate | Tier selector implemented and tested; not yet driven by live reports |
 | Consent flow | `ConsentGate` push/pull logic implemented and tested; no UI prompt yet |
-| Audio (cpal + opus) | Feature-gated stub |
+| Audio | cpal capture + Opus encode/decode behind `audio` feature; round trip verified (synthetic tone; no mic on dev box) |
 | Multi-viewer fan-out | Implemented (`serve --multi`), verified with two concurrent viewers |
 | Mobile/browser targets, packaging/CI | Not started |
 | Release performance | Measured; software encode is the ceiling. See `docs/benchmarks.md` |
@@ -39,5 +39,6 @@ Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a de
 
 - Toolchain is `x86_64-pc-windows-gnu`; MinGW runtime DLLs must be on `PATH` to run the binary. See `README.md`.
 - openh264 emits benign warnings for screen-content adaptive-quantization/background-detection; these are auto-disabled.
+
 
 

@@ -65,6 +65,11 @@ enum Commands {
         #[arg(long, default_value_t = 4_000_000)]
         bitrate: u32,
     },
+    /// Capture microphone audio and verify the Opus round trip
+    AudioTest {
+        #[arg(long, default_value_t = 50)]
+        frames: u32,
+    },
     /// Receive a stream over QUIC, decode it, and report statistics
     Watch {
         addr: SocketAddr,
@@ -90,6 +95,7 @@ async fn main() -> Result<()> {
         Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
+        Commands::AudioTest { frames } => audio_test(frames),
     }
 }
 
@@ -379,6 +385,75 @@ mod viewer {
         Ok(Some(ViewerHandle { tx, thread: Some(thread) }))
     }
 }
+#[cfg(feature = "audio")]
+fn synthetic_tone(index: u32) -> Vec<i16> {
+    use std::f32::consts::TAU;
+    let n = skreen_audio::FRAME_SAMPLES;
+    let freq = 440.0;
+    let rate = skreen_audio::SAMPLE_RATE as f32;
+    (0..n)
+        .map(|i| {
+            let t = (index as usize * n + i) as f32 / rate;
+            (TAU * freq * t).sin().mul_add(0.3, 0.0).mul_add(i16::MAX as f32, 0.0) as i16
+        })
+        .collect()
+}
+fn audio_test(frames: u32) -> Result<()> {
+    #[cfg(feature = "audio")]
+    {
+        use skreen_audio::{opus_codec::{OpusTalkDecoder, OpusTalkEncoder}, AudioDecoder, AudioEncoder, AudioSource, cpal_source::CpalSource};
+
+        let mut encoder = OpusTalkEncoder::new()?;
+        let mut decoder = OpusTalkDecoder::new()?;
+        let mut encoded_bytes = 0usize;
+        let mut mismatches = 0usize;
+
+        let mut live_source = match CpalSource::new() {
+            Ok(source) => Some(source),
+            Err(e) => {
+                println!("no microphone available ({e}); using a synthetic tone");
+                None
+            }
+        };
+        if let Some(source) = live_source.as_mut() {
+            source.start()?;
+        }
+
+        let mut captured = 0u32;
+        while captured < frames {
+            let pcm = match live_source.as_mut() {
+                Some(source) => match source.next_frame()? {
+                    Some(frame) => frame.pcm,
+                    None => continue,
+                },
+                None => synthetic_tone(captured),
+            };
+            let packet = encoder.encode(&pcm)?;
+            encoded_bytes += packet.len();
+            let decoded = decoder.decode(&packet)?;
+            if decoded.len() != pcm.len() {
+                mismatches += 1;
+            }
+            captured += 1;
+            if captured % 10 == 0 {
+                println!("{captured}/{frames} audio frames, {encoded_bytes} bytes encoded");
+            }
+        }
+        if let Some(mut source) = live_source {
+            source.stop()?;
+        }
+        println!(
+            "processed {captured} frames of {} samples; {encoded_bytes} encoded bytes; length mismatches: {mismatches}",
+            skreen_audio::FRAME_SAMPLES
+        );
+        Ok(())
+    }
+    #[cfg(not(feature = "audio"))]
+    {
+        let _ = frames;
+        anyhow::bail!("audio-test requires the `audio` feature (cpal + opus)")
+    }
+}
 async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {
@@ -494,6 +569,8 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
 
 
 
