@@ -6,3 +6,4 @@ target/
 .skreenerino/
 .DS_Store
 Thumbs.db
+.codebase-memory/

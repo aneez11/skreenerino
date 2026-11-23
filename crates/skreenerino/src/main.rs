@@ -22,7 +22,11 @@ enum Commands {
         fps: u32,
     },
     /// Join a room (host:port) and display the stream
-    Join { room: String },
+    Join {
+        room: String,
+        #[arg(long, default_value_t = 300)]
+        frames: u32,
+    },
     /// Discover peers (stub until mDNS browse loop lands)
     Discover,
     /// Capture -> openh264 -> file spike (no network)
@@ -42,6 +46,12 @@ enum Commands {
         bitrate: u32,
         #[arg(long, default_value_t = 30)]
         fps: u32,
+        /// Name advertised over mDNS (defaults to hostname)
+        #[arg(long)]
+        name: Option<String>,
+        /// Room name advertised alongside this presenter
+        #[arg(long)]
+        room: Option<String>,
     },
     /// Receive a stream over QUIC, decode it, and report statistics
     Watch {
@@ -62,23 +72,52 @@ async fn main() -> Result<()> {
 
     match Cli::parse().command {
         Commands::Send { target, bitrate, fps } => send(&target, bitrate, fps).await,
-        Commands::Join { room } => join(&room).await,
-        Commands::Discover => {
-            println!("discover: mDNS browse loop not yet implemented");
-            Ok(())
-        }
+        Commands::Join { room, frames } => join(&room, frames).await,
+        Commands::Discover => discover().await,
         Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
-        Commands::Serve { bind, bitrate, fps } => serve(bind, bitrate, fps).await,
+        Commands::Serve { bind, bitrate, fps, name, room } => serve(bind, bitrate, fps, name, room).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
     }
 }
 
 async fn send(target: &str, bitrate: u32, fps: u32) -> Result<()> {
-    if target.contains(':') {
-        let addr: SocketAddr = target.parse()?;
+    if let Some(peer) = skreen_discovery::parse_manual_endpoint(target) {
+        let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
         return stream_to(addr, bitrate, fps).await;
     }
-    anyhow::bail!("peer `{target}` not found: mDNS lookup is not implemented yet; pass `host:port`")
+    let matches = browse_peers()?;
+    let Some(peer) = matches.into_iter().find(|p| p.device.0 == target) else {
+        anyhow::bail!("no peer named `{target}` on this network; pass `host:port` instead")
+    };
+    let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
+    println!("sending to {} at {}", peer.device.0, addr);
+    stream_to(addr, bitrate, fps).await
+}
+
+fn browse_peers() -> Result<Vec<skreen_discovery::AdvertisedPeer>> {
+    #[cfg(feature = "mdns")]
+    {
+        use skreen_discovery::DiscoveryService;
+        let mut d = skreen_discovery::mdns::MdnsDiscovery::new()?;
+        d.browse()
+    }
+    #[cfg(not(feature = "mdns"))]
+    {
+        anyhow::bail!("built without mDNS support")
+    }
+}
+
+async fn discover() -> Result<()> {
+    let peers = browse_peers()?;
+    if peers.is_empty() {
+        println!("no peers found");
+        return Ok(());
+    }
+    for p in peers {
+        let room = p.room.as_deref().unwrap_or("-");
+        println!("{}  {}:{}  room={room}", p.device.0, p.host, p.port);
+    }
+    Ok(())
 }
 
 #[cfg(all(feature = "quic", feature = "xcap", feature = "h264"))]
@@ -191,22 +230,71 @@ async fn stream_to(addr: SocketAddr, bitrate: u32, fps: u32) -> Result<()> {
     }
 }
 
-async fn serve(bind: SocketAddr, bitrate: u32, fps: u32) -> Result<()> {
+async fn serve(bind: SocketAddr, bitrate: u32, fps: u32, name: Option<String>, room: Option<String>) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "xcap", feature = "h264"))]
     {
         let server = skreen_transport::quic::QuicServer::bind(bind).await?;
-        println!("serving on {} (ctrl-c to stop)", server.local_addr());
+        let local = server.local_addr();
+        println!("serving on {local} (ctrl-c to stop)");
+
+        #[cfg(feature = "mdns")]
+        let mut _discovery = {
+            use skreen_discovery::DiscoveryService;
+            let mut d = skreen_discovery::mdns::MdnsDiscovery::new()?;
+            let device = name.unwrap_or_else(default_device_name);
+            let advertised_host = if local.ip().is_unspecified() {
+                local_display_host()
+            } else {
+                local.ip().to_string()
+            };
+            let peer = skreen_discovery::AdvertisedPeer {
+                device: skreen_proto::DeviceId(device.clone()),
+                host: advertised_host,
+                port: local.port(),
+                room: room.clone(),
+            };
+            match d.advertise(&peer) {
+                Ok(()) => println!("advertising `{device}` via mDNS"),
+                Err(e) => eprintln!("mDNS advertise failed (streaming continues): {e}"),
+            }
+            d
+        };
+
         let conn = server.accept().await?;
         println!("viewer connected: {}", conn.remote_address());
         let result = presenter::run(conn, presenter::PresenterConfig { bitrate, fps }).await;
+        #[cfg(feature = "mdns")]
+        {
+            use skreen_discovery::DiscoveryService;
+            let _ = _discovery.shutdown();
+        }
         server.close();
         result
     }
     #[cfg(not(all(feature = "quic", feature = "xcap", feature = "h264")))]
     {
-        let _ = (bind, bitrate, fps);
+        let _ = (bind, bitrate, fps, name, room);
         anyhow::bail!("serve requires the quic, xcap and h264 features")
     }
+}
+
+fn default_device_name() -> String {
+    std::env::var("COMPUTERNAME")
+        .or_else(|_| std::env::var("HOSTNAME"))
+        .unwrap_or_else(|_| "skreenerino-host".into())
+        .to_lowercase()
+        .replace(' ', "-")
+}
+
+fn local_display_host() -> String {
+    use std::net::UdpSocket;
+    UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| {
+            s.connect("8.8.8.8:80")?;
+            s.local_addr()
+        })
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "127.0.0.1".into())
 }
 
 async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
@@ -298,11 +386,22 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
     }
 }
 
-async fn join(room: &str) -> Result<()> {
+async fn join(room: &str, frames: u32) -> Result<()> {
     if let Some(peer) = skreen_discovery::parse_manual_endpoint(room) {
         let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
-        return watch(addr, 300).await;
+        return watch(addr, frames).await;
     }
-    anyhow::bail!("unknown room `{room}`: mDNS browse not implemented yet; pass `host:port`")
+    let peers = browse_peers()?;
+    let Some(peer) = peers.into_iter().find(|p| p.device.0 == room || p.room.as_deref() == Some(room)) else {
+        anyhow::bail!("no room or peer named `{room}`; pass `host:port` instead")
+    };
+    let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
+    println!("joining {} at {}", peer.device.0, addr);
+    watch(addr, frames).await
 }
+
+
+
+
+
 

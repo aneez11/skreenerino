@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+default = ["mdns"]
+mdns = ["dep:mdns-sd"]
+
 [dependencies]
 anyhow.workspace = true
 thiserror.workspace = true
@@ -12,4 +16,4 @@ serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 skreen-proto.workspace = true
-mdns-sd.workspace = true
+mdns-sd = { workspace = true, optional = true }

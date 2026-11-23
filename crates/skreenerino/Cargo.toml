@@ -6,10 +6,11 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["xcap", "h264", "quic"]
+default = ["xcap", "h264", "quic", "mdns"]
 xcap = ["skreen-capture/xcap"]
 h264 = ["skreen-codec/h264"]
 quic = ["skreen-transport/quic", "dep:quinn", "dep:rustls"]
+mdns = ["skreen-discovery/mdns"]
 
 [dependencies]
 anyhow.workspace = true
@@ -29,5 +30,6 @@ skreen-session.workspace = true
 skreen-security.workspace = true
 skreen-render.workspace = true
 skreen-audio.workspace = true
+
 
 
