@@ -2,9 +2,9 @@
 mod audio_stream;
 mod gateway;
 mod latency;
-mod nack;
+// nack + viewer now live in skreen-app
 mod relay;
-mod room;
+use skreen_app::presenter as room;
 mod soak;
 mod spike;
 
@@ -827,249 +827,86 @@ async fn wall(streams: Vec<String>, max_frames: u32) -> Result<()> {
         anyhow::bail!("wall requires the quic, h264 and viewer features")
     }
 }
+/// Adapts the CLI render viewer to skreen-app's `FrameSink`.
+#[cfg(feature = "viewer")]
+struct CliSink {
+    #[cfg(feature = "gui")]
+    gui: Option<viewer::GuiHandle>,
+    viewer: Option<viewer::ViewerHandle>,
+}
+
+#[cfg(feature = "viewer")]
+impl skreen_app::FrameSink for CliSink {
+    fn push(&self, stream: &str, frame: skreen_render::RgbaFrame) {
+        #[cfg(feature = "gui")]
+        if let Some(gui) = &self.gui {
+            gui.push(stream, frame);
+            return;
+        }
+        let _ = stream;
+        if let Some(viewer) = &self.viewer {
+            viewer.push(frame);
+        }
+    }
+}
 
 async fn watch(addr: SocketAddr, max_frames: u32, use_gui: bool) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {
-        use skreen_codec::{h264::OpenH264Decoder, Decoder};
-        use skreen_proto::fragment::Reassembler;
-        use skreen_proto::media::decode_media;
-        use skreen_transport::quic;
-        let conn = connect_with_tofu(addr).await?;
-        println!("connected to {}", conn.remote_address());
-        let mut reassembler = Reassembler::default();
-        let mut decoder = OpenH264Decoder::new()?;
-
-        // Control stream: NACKs, quality reports, and RTT heartbeats.
-        let control = quic::open_control(&conn).await.ok();
-        let (maybe_writer, maybe_reader) = match control {
-            Some((send, recv)) => (Some(send), Some(recv)),
-            None => (None, None),
-        };
-        let mut control_writer = maybe_writer;
-        let rtt_ms = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
-        if let Some(mut recv) = maybe_reader {
-            let rtt_state = rtt_ms.clone();
-            tokio::spawn(async move {
-                while let Ok(Some(frame)) = skreen_transport::control::read_frame(&mut recv).await {
-                    if let Ok(skreen_proto::ControlMessage::Heartbeat { ts_ms }) =
-                        skreen_proto::decode_control(&frame)
-                    {
-                        let now_ms = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .map(|d| d.as_millis() as u64)
-                            .unwrap_or(0);
-                        rtt_state.store(
-                            now_ms.saturating_sub(ts_ms) as u32,
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                    }
-                }
-            });
-        }
-        let rtt_state = rtt_ms.clone();
-        let mut nack_scheduler =
-            crate::nack::NackScheduler::new(64, std::time::Duration::from_millis(40));
-        let mut last_nack_poll = std::time::Instant::now();
-        let mut last_decode_ms = 0u32;
-        #[cfg(feature = "audio")]
-        let audio_stats = std::sync::Arc::new(crate::audio_stream::AudioStats::default());
-        #[cfg(feature = "audio")]
-        let mut audio_player = {
-            let sink = skreen_audio::cpal_sink::AudioSink::new();
-            let decoder = skreen_audio::opus_codec::OpusTalkDecoder::new();
-            match (sink, decoder) {
-                (Ok(s), Ok(d)) => Some((s, d)),
-                _ => {
-                    tracing::warn!("no audio output device; audio will be ignored");
+        #[cfg(feature = "viewer")]
+        let sink: std::sync::Arc<dyn skreen_app::FrameSink> = {
+            // egui shell when requested, otherwise the bare video window.
+            #[cfg(feature = "gui")]
+            {
+                let gui = if use_gui {
+                    viewer::start_gui("skreenerino", Some(max_frames))?
+                } else {
                     None
-                }
+                };
+                let plain = if gui.is_none() {
+                    viewer::start("skreenerino viewer")?
+                } else {
+                    None
+                };
+                std::sync::Arc::new(CliSink { gui, viewer: plain })
+            }
+            #[cfg(not(feature = "gui"))]
+            {
+                let _ = use_gui;
+                std::sync::Arc::new(CliSink {
+                    viewer: viewer::start("skreenerino viewer")?,
+                })
             }
         };
-        #[cfg(all(feature = "gui"))]
-        let _gui = if use_gui {
-            viewer::start_gui("skreenerino", Some(max_frames))?
-        } else {
-            None
+
+        let opts = skreen_app::viewer::ViewerOptions {
+            max_frames,
+            ..skreen_app::viewer::ViewerOptions::new(addr)
         };
-        #[cfg(all(feature = "viewer", not(feature = "gui")))]
-        let _viewer = viewer::start("skreenerino viewer")?;
-        #[cfg(all(feature = "viewer", feature = "gui"))]
-        let _viewer = if use_gui {
-            None
-        } else {
-            viewer::start("skreenerino viewer")?
-        };
-
-        let mut datagrams = 0u64;
-        let mut frames = 0u32;
-        let mut bytes = 0usize;
-        let mut keyframes = 0u32;
-        let started = std::time::Instant::now();
-        let mut first_frame_at: Option<std::time::Instant> = None;
-        let mut last_frame_at: Option<std::time::Instant> = None;
-        let mut size_check: Option<(usize, usize)> = None;
-
-        while frames < max_frames {
-            let payload = match quic::recv_datagram(&conn).await {
-                Ok(p) => p,
-                Err(e) => {
-                    println!("stream ended: {e}");
-                    break;
-                }
-            };
-            datagrams += 1;
-            bytes += payload.len();
-
-            let datagram = match decode_media(&payload) {
-                Ok(d) => d,
-                Err(_) => {
-                    // Not a video datagram; try audio when this build supports it.
-                    #[cfg(feature = "audio")]
-                    if let Ok(audio) = skreen_proto::media::decode_audio(&payload) {
-                        audio_stats
-                            .frames
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        audio_stats.bytes.fetch_add(
-                            audio.opus.len() as u64,
-                            std::sync::atomic::Ordering::Relaxed,
-                        );
-                        if let Some((sink, decoder)) = audio_player.as_mut() {
-                            if let Ok(pcm) =
-                                skreen_audio::AudioDecoder::decode(decoder, &audio.opus)
-                            {
-                                sink.push(&pcm);
-                            }
-                        }
-                    }
-                    continue;
-                }
-            };
-            if datagram.keyframe {
-                keyframes += 1;
-            }
-            nack_scheduler.observe(datagram.sequence);
-
-            // Ask the presenter to resend any settled gaps.
-            if last_nack_poll.elapsed() >= std::time::Duration::from_millis(40) {
-                last_nack_poll = std::time::Instant::now();
-                let missing = nack_scheduler.poll(std::time::Instant::now());
-                if let Some(writer) = control_writer.as_mut() {
-                    let writer = &mut *writer;
-                    if !missing.is_empty() {
-                        let msg = skreen_proto::ControlMessage::Nack {
-                            stream: skreen_proto::StreamId("main".into()),
-                            sequences: missing.clone(),
-                        };
-                        if let Ok(bytes) = skreen_proto::encode_control(&msg) {
-                            let _ = skreen_transport::control::write_frame(writer, &bytes).await;
-                        }
-                    }
-
-                    // Feed the presenter's adaptive bitrate controller with the
-                    // loss rate observed in this reporting window.
-                    let expected = datagrams.max(1);
-                    let loss_permille = ((missing.len() as u64 * 1000) / expected).min(1000) as u32;
-                    let report = skreen_proto::ControlMessage::QualityReport {
-                        stream: skreen_proto::StreamId("main".into()),
-                        rtt_ms: rtt_state.load(std::sync::atomic::Ordering::Relaxed),
-                        loss_permille,
-                        decode_ms: last_decode_ms,
-                    };
-                    if let Ok(bytes) = skreen_proto::encode_control(&report) {
-                        let _ = skreen_transport::control::write_frame(writer, &bytes).await;
-                    }
-                }
-            }
-            let Some(frame_bytes) = reassembler.push(skreen_proto::fragment::FrameFragment {
-                stream: datagram.stream,
-                sequence: datagram.sequence,
-                timestamp_us: datagram.timestamp_us,
-                keyframe: datagram.keyframe,
-                fragment_index: datagram.fragment_index,
-                fragment_count: datagram.fragment_count,
-                payload: datagram.payload,
-            }) else {
-                continue;
-            };
-
-            let decode_started = std::time::Instant::now();
-            let decoded = decoder.decode(&frame_bytes);
-            let decode_ms = decode_started.elapsed().as_millis().min(u32::MAX as u128) as u32;
-            last_decode_ms = decode_ms;
-            match decoded {
-                Ok(Some(frame)) => {
-                    let now = std::time::Instant::now();
-                    if first_frame_at.is_none() {
-                        first_frame_at = Some(now);
-                    }
-                    last_frame_at = Some(now);
-                    frames += 1;
-                    let size =
-                        size_check.get_or_insert((frame.width as usize, frame.height as usize));
-                    if *size == (0, 0) {
-                        *size = (frame.width as usize, frame.height as usize);
-                    }
-                    #[cfg(all(feature = "viewer", feature = "gui"))]
-                    {
-                        let out = skreen_render::RgbaFrame {
-                            size: skreen_render::FrameSize {
-                                width: frame.width,
-                                height: frame.height,
-                            },
-                            pixels: frame.rgba,
-                        };
-                        match (_gui.as_ref(), _viewer.as_ref()) {
-                            (Some(gui), _) => gui.push("main", out),
-                            (None, Some(v)) => v.push(out),
-                            _ => {}
-                        }
-                    }
-                    #[cfg(all(feature = "viewer", not(feature = "gui")))]
-                    if let Some(ref viewer) = _viewer {
-                        viewer.push(skreen_render::RgbaFrame {
-                            size: skreen_render::FrameSize {
-                                width: frame.width,
-                                height: frame.height,
-                            },
-                            pixels: frame.rgba,
-                        });
-                    }
-                }
-                Ok(None) => {}
-                Err(e) => tracing::warn!("decode error: {e}"),
-            }
-        }
-
-        let elapsed = started.elapsed();
-        let stream_span = match (first_frame_at, last_frame_at) {
-            (Some(a), Some(b)) => b.duration_since(a).as_secs_f64(),
-            _ => 0.0,
-        };
-        let fps = if stream_span > 0.0 {
-            (frames.saturating_sub(1)) as f64 / stream_span
-        } else {
-            0.0
-        };
+        let stats = skreen_app::viewer::run_viewer(opts, sink, |s| {
+            tracing::debug!(frames = s.frames, fps = s.fps, "viewer progress");
+        })
+        .await?;
         println!(
-            "decoded {frames} frames from {datagrams} datagrams ({keyframes} keyframe fragments), {bytes} bytes in {elapsed:?}"
+            "decoded {} frames from {} datagrams ({} keyframe fragments), {} bytes",
+            stats.frames, stats.datagrams, stats.keyframes, stats.bytes
         );
-        println!("steady-state {fps:.1} fps");
-        #[cfg(feature = "audio")]
-        println!(
-            "audio datagrams: {} ({} bytes)",
-            audio_stats
-                .frames
-                .load(std::sync::atomic::Ordering::Relaxed),
-            audio_stats.bytes.load(std::sync::atomic::Ordering::Relaxed)
-        );
+        println!("steady-state {:.1} fps", stats.fps);
         Ok(())
     }
     #[cfg(not(all(feature = "quic", feature = "h264")))]
     {
-        let _ = (addr, max_frames);
+        let _ = (addr, max_frames, use_gui);
         anyhow::bail!("watch requires the quic and h264 features")
     }
+}
+
+#[cfg(not(feature = "viewer"))]
+struct NullSink;
+
+#[cfg(not(feature = "viewer"))]
+impl skreen_app::FrameSink for NullSink {
+    fn push(&self, _stream: &str, _frame: skreen_render::RgbaFrame) {}
 }
 
 async fn join(room: &str, frames: u32) -> Result<()> {

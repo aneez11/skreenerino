@@ -10,6 +10,7 @@ members = [
   "crates/skreen-security",
   "crates/skreen-render",
   "crates/skreen-audio",
+  "crates/skreen-app",
   "crates/skreenerino",
 ]
 
@@ -49,6 +50,8 @@ skreen-session = { path = "crates/skreen-session" }
 skreen-security = { path = "crates/skreen-security" }
 skreen-render = { path = "crates/skreen-render" }
 skreen-audio = { path = "crates/skreen-audio" }
+skreen-app = { path = "crates/skreen-app" }
+
 
 
 

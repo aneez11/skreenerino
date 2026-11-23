@@ -3542,6 +3542,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
+name = "skreen-app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "quinn",
+ "rustls",
+ "serde",
+ "serde_json",
+ "skreen-audio",
+ "skreen-capture",
+ "skreen-codec",
+ "skreen-discovery",
+ "skreen-proto",
+ "skreen-render",
+ "skreen-security",
+ "skreen-session",
+ "skreen-transport",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "skreen-audio"
 version = "0.1.0"
 dependencies = [
@@ -3669,6 +3693,7 @@ dependencies = [
  "pollster 0.4.0",
  "quinn",
  "rustls",
+ "skreen-app",
  "skreen-audio",
  "skreen-capture",
  "skreen-codec",
