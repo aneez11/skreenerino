@@ -72,6 +72,11 @@ impl TofuStore {
         Ok(())
     }
 
+    /// Fingerprint currently pinned for a device, if any.
+    pub fn fingerprint(&self, device_id: &str) -> Option<String> {
+        self.known.get(device_id).cloned()
+    }
+
     /// Trust-on-first-use check. First contact pins the fingerprint; later contacts must match.
     pub fn verify_or_pin(
         &mut self,

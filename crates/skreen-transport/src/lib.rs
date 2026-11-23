@@ -1,4 +1,5 @@
 pub mod control;
+pub mod identity;
 pub mod jitter;
 pub mod quality;
 pub mod retransmit;
@@ -50,10 +51,16 @@ pub mod quic {
         Ok(cfg)
     }
 
-    fn insecure_client_config() -> Result<quinn::ClientConfig> {
+    /// Client TLS config. When `expected_fingerprint` is set, the server
+    /// certificate must hash to it (TOFU pinning); otherwise first contact is
+    /// accepted so the caller can record the pin.
+    fn client_config(expected_fingerprint: Option<String>) -> Result<quinn::ClientConfig> {
         let mut crypto = rustls::ClientConfig::builder()
             .dangerous()
-            .with_custom_certificate_verifier(Arc::new(SkipVerify))
+            .with_custom_certificate_verifier(Arc::new(PinningVerifier {
+                expected_fingerprint,
+                observed: Arc::new(std::sync::Mutex::new(None)),
+            }))
             .with_no_client_auth();
         crypto.alpn_protocols = vec![ALPN.to_vec()];
         Ok(quinn::ClientConfig::new(Arc::new(
@@ -61,20 +68,46 @@ pub mod quic {
         )))
     }
 
+    /// Trust-on-first-use certificate verifier.
+    ///
+    /// With no pinned fingerprint the handshake succeeds and the observed
+    /// fingerprint is recorded, so the caller can persist it. Once a
+    /// fingerprint is pinned, any different certificate is rejected.
     #[derive(Debug)]
-    struct SkipVerify;
+    struct PinningVerifier {
+        expected_fingerprint: Option<String>,
+        observed: Arc<std::sync::Mutex<Option<String>>>,
+    }
 
-    impl rustls::client::danger::ServerCertVerifier for SkipVerify {
+    impl PinningVerifier {
+        fn observed_fingerprint(&self) -> Option<String> {
+            self.observed.lock().ok().and_then(|o| o.clone())
+        }
+    }
+
+    impl rustls::client::danger::ServerCertVerifier for PinningVerifier {
         fn verify_server_cert(
             &self,
-            _end_entity: &rustls::pki_types::CertificateDer<'_>,
+            end_entity: &rustls::pki_types::CertificateDer<'_>,
             _intermediates: &[rustls::pki_types::CertificateDer<'_>],
             _server_name: &rustls::pki_types::ServerName<'_>,
             _ocsp: &[u8],
             _now: rustls::pki_types::UnixTime,
         ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error>
         {
-            Ok(rustls::client::danger::ServerCertVerified::assertion())
+            let actual = fingerprint_hex(end_entity.as_ref());
+            if let Ok(mut slot) = self.observed.lock() {
+                *slot = Some(actual.clone());
+            }
+            match &self.expected_fingerprint {
+                None => Ok(rustls::client::danger::ServerCertVerified::assertion()),
+                Some(expected) if expected.eq_ignore_ascii_case(&actual) => {
+                    Ok(rustls::client::danger::ServerCertVerified::assertion())
+                }
+                Some(expected) => Err(rustls::Error::General(format!(
+                    "certificate fingerprint mismatch: pinned {expected}, server presented {actual}"
+                ))),
+            }
         }
 
         fn verify_tls12_signature(
@@ -131,11 +164,48 @@ pub mod quic {
         }
     }
 
+    /// Connect without a pinned certificate (first contact).
     pub async fn connect(addr: SocketAddr) -> Result<Connection> {
+        connect_pinned(addr, None).await
+    }
+
+    /// Connect, enforcing `pinned_fingerprint` when given.
+    pub async fn connect_pinned(
+        addr: SocketAddr,
+        pinned_fingerprint: Option<&str>,
+    ) -> Result<Connection> {
+        let verifier = Arc::new(PinningVerifier {
+            expected_fingerprint: pinned_fingerprint.map(str::to_string),
+            observed: Arc::new(std::sync::Mutex::new(None)),
+        });
+        let mut crypto = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(verifier.clone())
+            .with_no_client_auth();
+        crypto.alpn_protocols = vec![ALPN.to_vec()];
+        let client_config = quinn::ClientConfig::new(Arc::new(
+            quinn::crypto::rustls::QuicClientConfig::try_from(crypto)?,
+        ));
+
         let mut endpoint = Endpoint::client("0.0.0.0:0".parse()?)?;
-        endpoint.set_default_client_config(insecure_client_config()?);
+        endpoint.set_default_client_config(client_config);
         let conn = endpoint.connect(addr, "skreenerino.local")?.await?;
+        if let Some(observed) = verifier.observed_fingerprint() {
+            tracing::debug!(fingerprint = %observed, "server certificate fingerprint");
+        }
         Ok(conn)
+    }
+
+    /// Lowercase hex SHA-256 of a DER certificate.
+    pub fn fingerprint_hex(der: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(der);
+        hasher
+            .finalize()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect()
     }
 
     pub async fn open_control(conn: &Connection) -> Result<(SendStream, RecvStream)> {

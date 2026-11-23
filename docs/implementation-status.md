@@ -8,7 +8,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 
 | Capability | Evidence |
 |---|---|
-| Workspace builds and tests pass | `cargo test --workspace` → 57 tests; `--features audio` → 11 more |
+| Workspace builds and tests pass | `cargo test --workspace` → 61 tests; `--features audio` → 11 more |
 | Screen capture (Windows) | `spike` wrote 20 H.264 frames; `serve` streams the primary monitor |
 | H.264 encode (openh264, screen-content tune) | `skreen-codec::h264::OpenH264Encoder` |
 | H.264 decode | `watch` decoded 150 frames in release |
@@ -24,7 +24,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 | Multi-presenter session model | `active_streams`, `presenters`, `stop_presenting` tested |
 | Tile layouts (single/grid/PiP) | layout + hit-test tests; wired into the viewer's grid render |
 | Room coordinator handover | session tests |
-| TOFU pinning, PIN pairing | security tests |
+| TOFU certificate pinning | Enforced on the QUIC handshake: first contact pins and saves the fingerprint; a changed certificate is refused (verified end to end) |
 | Push/pull consent gate | allowlist + remember/deny tests |
 | Adaptive bitrate tiers | step-down/step-up tests |
 | Loss/NACK tracking | missing-sequence tests |
@@ -58,6 +58,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
 

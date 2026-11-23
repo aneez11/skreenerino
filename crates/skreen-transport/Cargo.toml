@@ -10,6 +10,7 @@ default = []
 quic = ["dep:quinn", "dep:rcgen", "dep:rustls", "dep:rustls-pemfile"]
 
 [dependencies]
+sha2 = "0.10"
 anyhow.workspace = true
 thiserror.workspace = true
 bytes.workspace = true
@@ -21,5 +22,8 @@ quinn = { workspace = true, optional = true }
 rcgen = { version = "0.14", optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 rustls-pemfile = { version = "2", optional = true }
+
+
+
 
 

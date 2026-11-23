@@ -624,6 +624,52 @@ async fn web_view(bind: SocketAddr, stream: Option<String>) -> Result<()> {
     }
 }
 /// Connect to several presenters and render them in one grid window.
+/// Connect using the pinned certificate for this host when one exists, and pin
+/// the certificate on first contact (trust on first use).
+#[cfg(feature = "quic")]
+async fn connect_with_tofu(addr: SocketAddr) -> Result<quinn::Connection> {
+    use skreen_security::TofuStore;
+    use skreen_transport::identity::{check_pin, PinDecision};
+
+    let path = skreen_security::default_tofu_path();
+    let mut store = TofuStore::load(&path).unwrap_or_default();
+    let host = addr.ip().to_string();
+    let pinned = store.fingerprint(&host);
+
+    match pinned {
+        Some(fp) => match skreen_transport::quic::connect_pinned(addr, Some(&fp)).await {
+            Ok(conn) => Ok(conn),
+            Err(e) => {
+                // A mismatch must stop the connection rather than silently retrust.
+                anyhow::bail!(
+                    "refusing to connect to {host}: certificate does not match the pinned \
+                     fingerprint ({e}). Remove the entry from {} if the device was legitimately \
+                     reinstalled.",
+                    path.display()
+                )
+            }
+        },
+        None => {
+            let conn = skreen_transport::quic::connect(addr).await?;
+            if let Some(cert) = conn
+                .peer_identity()
+                .and_then(|id| {
+                    id.downcast::<Vec<rustls::pki_types::CertificateDer<'static>>>()
+                        .ok()
+                })
+                .and_then(|certs| certs.first().map(|c| c.as_ref().to_vec()))
+            {
+                if let PinDecision::FirstContact(fp) = check_pin(None, &cert) {
+                    let _ = store.verify_or_pin(&host, &fp);
+                    let _ = store.save(&path);
+                    println!("pinned {host} certificate {fp}");
+                }
+            }
+            Ok(conn)
+        }
+    }
+}
+
 async fn wall(streams: Vec<String>, max_frames: u32) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264", feature = "viewer"))]
     {
@@ -730,7 +776,7 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
         use skreen_proto::fragment::Reassembler;
         use skreen_proto::media::decode_media;
         use skreen_transport::quic;
-
+        let conn = connect_with_tofu(addr).await?;
         let conn = quic::connect(addr).await?;
         println!("connected to {}", conn.remote_address());
         let mut reassembler = Reassembler::default();

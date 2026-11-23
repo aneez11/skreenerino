@@ -3455,6 +3455,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
+ "sha2",
  "skreen-proto",
  "thiserror 2.0.21",
  "tokio",
