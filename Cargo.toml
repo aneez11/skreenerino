@@ -1,0 +1,47 @@
+﻿[workspace]
+resolver = "2"
+members = [
+  "crates/skreen-proto",
+  "crates/skreen-discovery",
+  "crates/skreen-capture",
+  "crates/skreen-codec",
+  "crates/skreen-transport",
+  "crates/skreen-session",
+  "crates/skreen-security",
+  "crates/skreen-render",
+  "crates/skreen-audio",
+  "crates/skreenerino",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["Skreenerino Contributors"]
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+postcard = { version = "1", features = ["alloc"] }
+bytes = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+quinn = "0.11"
+mdns-sd = "0.13"
+wgpu = "24"
+winit = "0.30"
+cpal = "0.15"
+opus = "0.3"
+
+skreen-proto = { path = "crates/skreen-proto" }
+skreen-discovery = { path = "crates/skreen-discovery" }
+skreen-capture = { path = "crates/skreen-capture" }
+skreen-codec = { path = "crates/skreen-codec" }
+skreen-transport = { path = "crates/skreen-transport" }
+skreen-session = { path = "crates/skreen-session" }
+skreen-security = { path = "crates/skreen-security" }
+skreen-render = { path = "crates/skreen-render" }
+skreen-audio = { path = "crates/skreen-audio" }

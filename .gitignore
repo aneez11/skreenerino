@@ -1,0 +1,8 @@
+﻿.cargo-home/
+.cargo-target/
+target/
+**/target/
+.tools/
+.skreenerino/
+.DS_Store
+Thumbs.db

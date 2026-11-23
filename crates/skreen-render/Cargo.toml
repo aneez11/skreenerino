@@ -1,0 +1,17 @@
+﻿[package]
+name = "skreen-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+wgpu = ["dep:wgpu", "dep:winit"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+wgpu = { workspace = true, optional = true }
+winit = { workspace = true, optional = true }

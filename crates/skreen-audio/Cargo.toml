@@ -1,0 +1,17 @@
+﻿[package]
+name = "skreen-audio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+native = ["dep:cpal", "dep:opus"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+cpal = { workspace = true, optional = true }
+opus = { workspace = true, optional = true }
