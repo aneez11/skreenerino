@@ -46,10 +46,24 @@ Release build, loopback: 150 frames decoded, 414 datagrams, 330881 bytes, 9.79 s
 steady state 15.4 fps. Two concurrent viewers each decoded 30/30 frames in an
 earlier debug-build run, confirming fan-out and keyframe-on-join.
 
-## Interpretation
+'## Resolution scaling
+
+`serve --scale <factor>` downsamples before encoding (nearest sampling, even
+dimensions for the codec). Measured in release on the same machine:
+
+| Mode | Steady-state fps |
+|---|---|
+| Native 1920x1080, fps 30 | 15.2 |
+| `--scale 0.5` (960x540), fps 30 | 16.8 |
+
+The small gain shows capture (xcap per-frame readback) is the next bottleneck,
+not the encoder. A DXGI/WGC texture path would be needed to go further.
+
+## Interpretation'
 
 - The software H.264 encoder is the throughput ceiling (about 26 ms/frame of CPU),
   so 1080p30 needs either a faster preset, smaller resolution, or hardware encode.
 - Decode is cheap (7 ms) and the QUIC path is not the limiting factor on loopback.
 - The <100 ms glass-to-glass target is plausible offline; real LAN latency still
   needs a two-machine measurement with the token harness over the network.
+

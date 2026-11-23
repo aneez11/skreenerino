@@ -21,6 +21,8 @@ pub struct RoomConfig {
     pub fps: u32,
     pub name: String,
     pub audio: bool,
+    /// Resolution scale applied before encoding (1.0 = native).
+    pub scale: f32,
 }
 
 #[derive(Default)]
@@ -416,6 +418,7 @@ fn encode_thread(
             }
         }
 
+        let f = skreen_capture::scale::maybe_scale(f, cfg.scale);
         for packet in encoder.encode(&f.rgba, f.width, f.height, f.timestamp_us)? {
             if tx.receiver_count() > 0 {
                 let _ = tx.send(Arc::new(packet));

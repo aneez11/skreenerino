@@ -1,6 +1,8 @@
 use anyhow::Result;
 use bytes::Bytes;
 
+pub mod scale;
+
 #[derive(Debug, Clone)]
 pub struct CapturedFrame {
     pub width: u32,

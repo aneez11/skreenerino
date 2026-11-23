@@ -83,6 +83,9 @@ enum Commands {
         /// Also stream microphone audio (requires the `audio` feature)
         #[arg(long, default_value_t = false)]
         audio: bool,
+        /// Encode at a fraction of native resolution (0.1-1.0)
+        #[arg(long, default_value_t = 1.0)]
+        scale: f32,
     },
     /// Measure capture -> encode -> decode latency with an embedded frame token
     Latency {
@@ -134,7 +137,8 @@ async fn main() -> Result<()> {
             room,
             multi,
             audio,
-        } => serve(bind, bitrate, fps, name, room, multi, audio).await,
+            scale,
+        } => serve(bind, bitrate, fps, name, room, multi, audio, scale).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
@@ -306,6 +310,7 @@ async fn serve(
     room: Option<String>,
     multi: bool,
     room_audio: bool,
+    scale: f32,
 ) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "xcap", feature = "h264"))]
     {
@@ -342,6 +347,7 @@ async fn serve(
                 fps,
                 name: name.clone().unwrap_or_else(default_device_name),
                 audio: room_audio,
+                scale,
             };
             let shared = std::sync::Arc::new(room::RoomShared::new());
             let stop = async {
@@ -372,7 +378,7 @@ async fn serve(
     }
     #[cfg(not(all(feature = "quic", feature = "xcap", feature = "h264")))]
     {
-        let _ = (bind, bitrate, fps, name, room, multi, room_audio);
+        let _ = (bind, bitrate, fps, name, room, multi, room_audio, scale);
         anyhow::bail!("serve requires the quic, xcap and h264 features")
     }
 }
