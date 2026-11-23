@@ -1,48 +1,75 @@
 ﻿# Skreenerino
 
-LAN screen projection in Rust. See `docs/skreenerino-plan.md` for the full design and `docs/implementation-status.md` for what is currently implemented.
+LAN screen projection in Rust. Capture a screen on one machine and project it
+live to one or many devices on the same network.
+
+See `docs/skreenerino-plan.md` for the design and `docs/implementation-status.md`
+for exactly what works today.
+
+## Quick start
+
+```powershell
+# terminal 1: share this machine's screen
+skreenerino serve --bind 0.0.0.0:7654 --fps 30 --bitrate 4000000 --name desk --room classroom --multi
+
+# terminal 2 (another machine): watch the live window
+skreenerino join classroom
+
+# watch a specific host instead
+skreenerino watch 192.168.1.20:7654 --frames 600
+
+# any browser on the LAN
+skreenerino web-view --bind 0.0.0.0:7663 --stream 192.168.1.20:7654
+```
+
+Other commands:
+
+```powershell
+skreenerino discover                        # list peers advertised over mDNS
+skreenerino spike --frames 30               # capture -> H.264 file, no network
+skreenerino latency --frames 40             # measure encode/decode/token latency
+skreenerino relay --bind 0.0.0.0:7662       # forward one presenter to many viewers
+skreenerino audio-test --frames 20          # Opus capture/encode/decode round trip
+skreenerino soak --minutes 5                # churn/leak test (needs --features soak)
+```
 
 ## Layout
 
 ```
 crates/
-  skreen-proto      # control messages, frame headers, fragmentation/reassembly
-  skreen-discovery  # mDNS/room advertising trait + manual endpoint fallback
-  skreen-capture    # ScreenCapturer trait (per-OS backends pending)
-  skreen-codec      # Encoder/Decoder traits (openh264 and HW backends pending)
-  skreen-transport  # Transport trait, jitter buffer, MTU helpers (QUIC pending)
-  skreen-session    # room membership, roles, presenter handover
-  skreen-security   # device identity, TOFU pinning, PIN pairing, consent types
-  skreen-render     # wgpu surface (feature-gated, pending)
-  skreen-audio      # cpal+opus (feature-gated, pending)
-  skreenerino       # CLI/daemon entry point
+  skreen-proto      # control messages, media datagrams, fragmentation, latency tokens
+  skreen-discovery  # mDNS advertise/browse + manual host:port fallback
+  skreen-capture    # ScreenCapturer trait; Windows xcap backend, macOS/Linux scaffolds
+  skreen-codec      # Encoder/Decoder traits; openh264 backend
+  skreen-transport  # QUIC transport, jitter buffer, ABR tiers, loss tracking, simulation
+  skreen-session    # rooms, roles, presenter handover, multi-presenter state
+  skreen-security   # device identity, TOFU pinning, PIN pairing, consent gate
+  skreen-render     # wgpu viewer window, multi-stream tile layouts
+  skreen-audio      # cpal capture + Opus encode/decode
+  skreenerino       # CLI/daemon: serve, watch, join, relay, web-view, soak
 ```
 
-## Build
+## Building
 
-The toolchain on this machine is `x86_64-pc-windows-gnu`, which needs MinGW `dlltool`/`ld`. A portable MinGW is expected at `.tools/mingw/mingw64` (gitignored). Prepend its `bin` to `PATH`.
+The dev machine uses `x86_64-pc-windows-gnu`, which needs MinGW `dlltool`/`ld`.
+A portable MinGW is expected at `.tools/mingw/mingw64` (gitignored).
 
 ```powershell
 $env:CARGO_HOME=".cargo-home"
 $env:PATH="$PWD\.tools\mingw\mingw64\bin;$env:PATH"
 $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
+$env:USERPROFILE\.cargo\bin\cargo.exe build --release -p skreenerino
+.\scripts\package.ps1     # bundles binary + runtime DLLs into dist/
 ```
 
-Coverage today is platform-neutral: protocol codec, fragmentation/reassembly, jitter buffer, room state machine, and TOFU/PIN logic. Capture, hardware codecs, QUIC transport, and the wgpu viewer require OS SDKs and are tracked in the status doc.
-
-## Usage
-
-```powershell
-# Phase 0 spike: capture 30 frames and write an H.264 elementary stream
-skreenerino spike --frames 30 --output capture.h264
-
-# Phase 1: serve the screen, then view it from another machine
-skreenerino serve --bind 0.0.0.0:7654 --fps 30 --bitrate 4000000
-skreenerino watch 192.168.1.20:7654 --frames 300
-# or: skreenerino join 192.168.1.20:7654
-```
+The audio feature additionally needs `CMAKE_POLICY_VERSION_MINIMUM=3.5` for the
+bundled libopus build.
 
 ## Status
 
-Live 1080p-class capture → openh264 → QUIC datagrams → reassembly → decode is verified on Windows. mDNS lookup, an on-screen wgpu viewer, adaptive bitrate, audio, multi-presenter tiling, and mobile/browser targets are still pending. See `docs/implementation-status.md`.
-
+All roadmap phases have working implementations for the parts that can run on a
+Windows host: capture, H.264 encode/decode, QUIC transport, mDNS discovery, live
+viewer, multi-viewer fan-out, relay, browser gateway, audio codec, CI, and
+packaging. macOS/Linux capture backends, hardware encoders, mobile clients, and
+real two-machine LAN validation are the remaining gaps. See
+`docs/implementation-status.md`.

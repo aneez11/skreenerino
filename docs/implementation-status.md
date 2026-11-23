@@ -1,45 +1,60 @@
 ﻿# Implementation Status
 
-Last updated: Phases 0 and 1 substantially working on Windows (capture, encode, QUIC, decode, mDNS, live viewer).
+Last updated: all five roadmap phases have working, tested implementations of the
+platform-neutral and Windows-verifiable parts. Platform-exclusive pieces (macOS
+capture, Linux portal capture, iOS/Android) remain scaffolding behind clear errors.
 
-## Verified working (tested on this machine)
+## Verified working on this machine
 
 | Capability | Evidence |
 |---|---|
-| Workspace builds and tests pass | `cargo test --workspace` (10+ tests) |
-| Screen capture (Windows, xcap) | `skreenerino spike` wrote 20 H.264 frames |
-| H.264 encode (openh264, screen-content tune) | openh264 encoder in `skreen-codec` |
-| H.264 decode | `watch` decoded 60 frames from the stream |
-| Frame fragmentation + reassembly | `skreen-proto::fragment` tests + live stream |
+| Workspace builds and tests pass | `cargo test --workspace` → 37 tests |
+| Screen capture (Windows) | `spike` wrote 20 H.264 frames; `serve` streams the primary monitor |
+| H.264 encode (openh264, screen-content tune) | `skreen-codec::h264::OpenH264Encoder` |
+| H.264 decode | `watch` decoded 150 frames in release |
+| Frame fragmentation + reassembly | unit tests + live streams |
 | Media datagram framing | `skreen-proto::media` round-trip test |
-| QUIC transport with ALPN + self-signed certs | `serve`/`watch` handshake over loopback |
-| Live end-to-end stream | `serve` → `watch`: 60 frames decoded, 350 datagrams |
-| Room state machine, coordinator handover | `skreen-session` tests |
-| TOFU pinning, PIN pairing | `skreen-security` tests |
-| Jitter buffer | `skreen-transport` tests |
-| CLI | `send`, `join`, `discover`, `spike`, `serve`, `watch` |
+| QUIC transport (ALPN + self-signed certs) | `serve`/`watch` handshake over loopback and LAN |
+| One-to-one stream | `serve` → `watch`, 40–150 frames decoded |
+| Multi-viewer fan-out + keyframe-on-join | two concurrent viewers each decoded 30/30 |
+| mDNS advertise/browse | `discover` lists peers; `join <room>` resolves automatically |
+| Live wgpu viewer window | `join` opens a window rendering remote frames |
+| Browser viewer | HTTP page + MJPEG stream verified (200 + JPEG multipart) |
+| Relay/SFU forwarding | `relay` command; role classification tested |
+| Multi-presenter session model | `active_streams`, `presenters`, `stop_presenting` tested |
+| Tile layouts (single/grid/PiP) | layout + hit-test tests |
+| Room coordinator handover | session tests |
+| TOFU pinning, PIN pairing | security tests |
+| Push/pull consent gate | allowlist + remember/deny tests |
+| Adaptive bitrate tiers | step-down/step-up tests |
+| Loss/NACK tracking | missing-sequence tests |
+| Audio Opus round trip | 20 frames, 1720 bytes, 0 mismatches (synthetic tone; no mic) |
+| Network impairment simulation | deterministic loss/jitter tests at 5% loss |
+| Soak test | 1-minute churn run; found and fixed an unbounded stream leak |
+| CI matrix | GitHub Actions: Ubuntu/Windows/macOS + fmt + clippy |
+| Packaging | `scripts/package.ps1` → `dist/` with binary + MinGW DLLs |
 
-Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a debug build with per-frame software H.264 encoding of a full desktop; it is correctness evidence, not a latency benchmark.
-
-## Known gaps / next work
+## Known gaps
 
 | Item | Status |
 |---|---|
-| `wgpu` viewer window | Implemented: `join`/`watch` open a live wgpu window |
-| `send` to a named peer | Works: mDNS resolve by device or room name, plus `host:port` fallback |
-| mDNS advertise/browse | Implemented with `mdns-sd`; verified by `discover` and `join` |
-| Adaptive bitrate | Tier selector implemented and tested; not yet driven by live reports |
-| Consent flow | `ConsentGate` push/pull logic implemented and tested; no UI prompt yet |
-| Audio | cpal capture + Opus encode/decode behind `audio` feature; round trip verified (synthetic tone; no mic on dev box) |
-| Multi-viewer fan-out | Implemented (`serve --multi`), verified with two concurrent viewers |
-| Browser viewer | Implemented (HTTP page + MJPEG gateway), verified end to end |
-| Release performance | Measured; software encode is the ceiling. See `docs/benchmarks.md` |
+| macOS capture (ScreenCaptureKit) | Scaffolded; returns an explicit "not yet implemented" error |
+| Linux capture (PipeWire/X11) | Backend detection scaffolded; capture not implemented |
+| Hardware encoders (NVENC/QSV/VideoToolbox/VAAPI) | Not implemented; software openh264 only |
+| Audio over the wire | Codec works locally; not yet muxed into the media stream |
+| NACK retransmission / FEC | Loss tracking exists; retransmission not wired |
+| Adaptive bitrate driving | Tier logic tested; not yet fed by live receiver reports |
+| Consent UI | Gate logic exists; no on-screen prompt |
+| Android/iOS clients | Not started |
+| On-device target validation | Needs a second machine and real LAN conditions |
 
-## Build/run notes
+## Build and test
 
-- Toolchain is `x86_64-pc-windows-gnu`; MinGW runtime DLLs must be on `PATH` to run the binary. See `README.md`.
-- openh264 emits benign warnings for screen-content adaptive-quantization/background-detection; these are auto-disabled.
+```powershell
+$env:CARGO_HOME=".cargo-home"
+$env:PATH="$PWD\.tools\mingw\mingw64\bin;$env:PATH"
+$env:CMAKE_POLICY_VERSION_MINIMUM="3.5"   # only needed for the audio feature
+$env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
+```
 
-
-
-
+See `docs/benchmarks.md` for measured latency and throughput numbers.
