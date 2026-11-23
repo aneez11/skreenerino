@@ -41,6 +41,13 @@ enum Commands {
         #[arg(long, default_value_t = 5)]
         minutes: u32,
     },
+    /// Show several presenters in one window as a grid wall
+    Wall {
+        /// Presenter addresses (`host:port`) or mDNS names
+        streams: Vec<String>,
+        #[arg(long, default_value_t = 300)]
+        frames: u32,
+    },
     /// Run relay/SFU endpoint: forwards one presenter to many viewers
     Relay {
         #[arg(long, default_value = "0.0.0.0:7662")]
@@ -142,6 +149,7 @@ async fn main() -> Result<()> {
         Commands::Watch { addr, frames } => watch(addr, frames).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
+        Commands::Wall { streams, frames } => wall(streams, frames).await,
         Commands::Relay { bind } => relay::run_relay(bind).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
         Commands::AudioTest { frames } => audio_test(frames),
@@ -615,6 +623,106 @@ async fn web_view(bind: SocketAddr, stream: Option<String>) -> Result<()> {
         anyhow::bail!("web-view requires the quic and h264 features")
     }
 }
+/// Connect to several presenters and render them in one grid window.
+async fn wall(streams: Vec<String>, max_frames: u32) -> Result<()> {
+    #[cfg(all(feature = "quic", feature = "h264", feature = "viewer"))]
+    {
+        use skreen_codec::{h264::OpenH264Decoder, Decoder};
+        use skreen_proto::fragment::Reassembler;
+        use skreen_proto::media::decode_media;
+        use skreen_transport::quic;
+        use std::sync::Arc;
+
+        if streams.is_empty() {
+            anyhow::bail!("wall needs at least one presenter: `skreenerino wall host:port ...`");
+        }
+
+        let (tx, rx) = skreen_render::wgpu_viewer::keyed_frame_channel(64);
+        let total_frames = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let limit = max_frames;
+
+        for target in streams {
+            let addr: SocketAddr = match skreen_discovery::parse_manual_endpoint(&target) {
+                Some(peer) => format!("{}:{}", peer.host, peer.port).parse()?,
+                None => {
+                    let peers = browse_peers()?;
+                    let peer = peers
+                        .into_iter()
+                        .find(|p| {
+                            p.device.0 == target || p.room.as_deref() == Some(target.as_str())
+                        })
+                        .ok_or_else(|| anyhow::anyhow!("no stream named `{target}`"))?;
+                    format!("{}:{}", peer.host, peer.port).parse()?
+                }
+            };
+
+            let tx = tx.clone();
+            let total_frames = total_frames.clone();
+            let key = target.clone();
+            tokio::spawn(async move {
+                let conn = match quic::connect(addr).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("wall: {key} connect failed: {e}");
+                        return;
+                    }
+                };
+                let mut reassembler = Reassembler::default();
+                let mut decoder = match OpenH264Decoder::new() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        eprintln!("wall: {key} decoder failed: {e}");
+                        return;
+                    }
+                };
+                loop {
+                    let Ok(payload) = quic::recv_datagram(&conn).await else {
+                        break;
+                    };
+                    let Ok(datagram) = decode_media(&payload) else {
+                        continue;
+                    };
+                    let Some(bytes) = reassembler.push(skreen_proto::fragment::FrameFragment {
+                        stream: datagram.stream,
+                        sequence: datagram.sequence,
+                        timestamp_us: datagram.timestamp_us,
+                        keyframe: datagram.keyframe,
+                        fragment_index: datagram.fragment_index,
+                        fragment_count: datagram.fragment_count,
+                        payload: datagram.payload,
+                    }) else {
+                        continue;
+                    };
+                    if let Ok(Some(frame)) = decoder.decode(&bytes) {
+                        let count = total_frames.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if count >= limit {
+                            break;
+                        }
+                        let _ = tx.send((
+                            key.clone(),
+                            Arc::new(skreen_render::RgbaFrame {
+                                size: skreen_render::FrameSize {
+                                    width: frame.width,
+                                    height: frame.height,
+                                },
+                                pixels: frame.rgba,
+                            }),
+                        ));
+                    }
+                }
+            });
+        }
+
+        drop(tx);
+        skreen_render::wgpu_viewer::run_blocking_keyed("skreenerino wall".into(), rx)
+    }
+    #[cfg(not(all(feature = "quic", feature = "h264", feature = "viewer")))]
+    {
+        let _ = (streams, max_frames);
+        anyhow::bail!("wall requires the quic, h264 and viewer features")
+    }
+}
+
 async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {

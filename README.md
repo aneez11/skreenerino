@@ -30,6 +30,7 @@ skreenerino discover                        # list peers advertised over mDNS
 skreenerino spike --frames 30               # capture -> H.264 file, no network
 skreenerino latency --frames 40             # measure encode/decode/token latency
 skreenerino relay --bind 0.0.0.0:7662       # forward one presenter to many viewers
+skreenerino wall 10.0.0.5:7654 10.0.0.6:7654  # several presenters in one grid window
 skreenerino audio-test --frames 20          # Opus capture/encode/decode round trip
 skreenerino soak --minutes 5                # churn/leak test (needs --features soak)
 ```
@@ -74,4 +75,5 @@ viewer, multi-viewer fan-out, relay, browser gateway, audio codec, CI, and
 packaging. macOS/Linux capture backends, hardware encoders, mobile clients, and
 real two-machine LAN validation are the remaining gaps. See
 `docs/implementation-status.md`.
+
 

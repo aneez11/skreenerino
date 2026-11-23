@@ -344,7 +344,7 @@ impl GpuState {
 struct App {
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
-    frames: Receiver<Arc<RgbaFrame>>,
+    frames: Receiver<(String, Arc<RgbaFrame>)>,
     pending: Option<(String, Arc<RgbaFrame>)>,
     title: String,
 }
@@ -420,16 +420,23 @@ impl ApplicationHandler<ViewerEvent> for App {
     }
 }
 
-/// Run the viewer on the current thread. Blocks until the window closes or the stream ends.
+/// Run a viewer window fed by single-stream frames.
 pub fn run_blocking(title: String, frames: Receiver<Arc<RgbaFrame>>) -> Result<()> {
-    #[cfg(target_os = "windows")]
-    let event_loop = {
-        use winit::platform::windows::EventLoopBuilderExtWindows;
-        let mut builder = EventLoop::<ViewerEvent>::with_user_event();
-        builder.with_any_thread(true);
-        builder.build()?
-    };
-    #[cfg(not(target_os = "windows"))]
+    let (tx, keyed_rx) = std::sync::mpsc::channel();
+    let pump = std::thread::spawn(move || {
+        while let Ok(frame) = frames.recv() {
+            if tx.send(("main".to_string(), frame)).is_err() {
+                break;
+            }
+        }
+    });
+    let result = run_blocking_keyed(title, keyed_rx);
+    let _ = pump.join();
+    result
+}
+
+/// Run a viewer window fed by keyed streams (multi-presenter wall).
+pub fn run_blocking_keyed(title: String, frames: Receiver<(String, Arc<RgbaFrame>)>) -> Result<()> {
     let event_loop = EventLoop::<ViewerEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App {
@@ -460,6 +467,25 @@ pub fn forward_frames(rx: Receiver<Arc<RgbaFrame>>, proxy: ViewerProxy) {
 }
 
 /// Broadcast-style sender that ignores errors after window close.
+/// Keyed frame channel, so a viewer can show several presenter streams at once.
+pub fn keyed_frame_channel(
+    capacity: usize,
+) -> (
+    SyncSender<(String, Arc<RgbaFrame>)>,
+    Receiver<(String, Arc<RgbaFrame>)>,
+) {
+    std::sync::mpsc::sync_channel(capacity)
+}
+
+/// Forward keyed frames to the window; used for the multi-presenter wall.
+pub fn forward_keyed_frames(rx: Receiver<(String, Arc<RgbaFrame>)>, proxy: ViewerProxy) {
+    while let Ok((key, frame)) = rx.recv() {
+        if proxy.send_event(ViewerEvent::Frame { key, frame }).is_err() {
+            break;
+        }
+    }
+    let _ = proxy.send_event(ViewerEvent::End);
+}
 pub fn frame_channel(capacity: usize) -> (SyncSender<Arc<RgbaFrame>>, Receiver<Arc<RgbaFrame>>) {
     std::sync::mpsc::sync_channel(capacity)
 }
