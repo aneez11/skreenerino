@@ -3,13 +3,19 @@ mod app;
 #[cfg(feature = "audio")]
 mod audio_stream;
 mod gateway;
+#[cfg(feature = "gui")]
+mod icons;
 mod latency;
+#[cfg(feature = "gui")]
+mod modals;
 #[cfg(feature = "gui")]
 mod runtime;
 #[cfg(feature = "gui")]
 mod screens;
 #[cfg(feature = "gui")]
 mod theme;
+#[cfg(feature = "gui")]
+mod widgets;
 // nack + viewer now live in skreen-app
 mod relay;
 use skreen_app::presenter as room;

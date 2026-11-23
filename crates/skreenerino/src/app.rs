@@ -20,7 +20,7 @@ use skreen_app::model::{HomeModel, Screen, Settings};
 use skreen_app::{FrameSink, ViewerStats};
 use skreen_render::{FrameSize, RgbaFrame};
 
-use crate::theme;
+use crate::{icons, theme, widgets};
 
 /// Messages from the UI thread to the session runtime.
 #[derive(Debug, Clone)]
@@ -343,6 +343,27 @@ pub(crate) struct App {
     /// Set by the harness so automated runs can exit after N seconds.
     quit_after: Option<Duration>,
     started: Instant,
+    // ---- design-driven UI state -------------------------------------------
+    dark: bool,
+    page: NavPage,
+    show_share_picker: bool,
+    show_pair: bool,
+    show_confirm_exit: bool,
+    room_label: String,
+    viewers: usize,
+    resolution: Option<(u32, u32)>,
+    encode_ms: f32,
+    dropped: u64,
+    share_monitor: usize,
+    pair_code: String,
+}
+
+/// Which sidebar page is showing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NavPage {
+    Home,
+    Settings,
+    About,
 }
 
 impl ApplicationHandler<UiEvent> for App {
@@ -549,6 +570,82 @@ impl App {
     pub(crate) fn started_secs(&self) -> f32 {
         self.started.elapsed().as_secs_f32()
     }
+    pub(crate) fn dark(&self) -> bool {
+        self.dark
+    }
+    pub(crate) fn palette(&self) -> theme::Palette {
+        theme::Palette::new(self.dark)
+    }
+    pub(crate) fn page(&self) -> NavPage {
+        self.page
+    }
+    pub(crate) fn set_page(&mut self, page: NavPage) {
+        self.page = page;
+    }
+    pub(crate) fn share_picker_open(&self) -> bool {
+        self.show_share_picker
+    }
+    pub(crate) fn set_share_picker(&mut self, open: bool) {
+        self.show_share_picker = open;
+    }
+    pub(crate) fn pair_open(&self) -> bool {
+        self.show_pair
+    }
+    pub(crate) fn set_pair_open(&mut self, open: bool) {
+        self.show_pair = open;
+    }
+    pub(crate) fn confirm_exit(&self) -> bool {
+        self.show_confirm_exit
+    }
+    pub(crate) fn set_confirm_exit(&mut self, open: bool) {
+        self.show_confirm_exit = open;
+    }
+    pub(crate) fn set_pair_code(&mut self, code: String) {
+        self.pair_code = code;
+    }
+    /// "Encode" while presenting, "Decode" while watching.
+    pub(crate) fn timing_label(&self) -> &'static str {
+        if self.sharing {
+            "Encode"
+        } else {
+            "Decode"
+        }
+    }
+    pub(crate) fn encode_ms(&self) -> f32 {
+        self.encode_ms
+    }
+    pub(crate) fn dropped(&self) -> u64 {
+        self.dropped
+    }
+    pub(crate) fn settings_ref(&self) -> &Settings {
+        &self.settings
+    }
+    pub(crate) fn pair_code(&self) -> &str {
+        &self.pair_code
+    }
+    pub(crate) fn room_label(&self) -> &str {
+        &self.room_label
+    }
+    pub(crate) fn viewers(&self) -> usize {
+        self.viewers
+    }
+    /// People in the call as this client sees it: itself plus remote streams.
+    pub(crate) fn participant_count(&self) -> usize {
+        if self.sharing {
+            self.viewers.max(1)
+        } else {
+            self.stream_count().max(1)
+        }
+    }
+    pub(crate) fn resolution(&self) -> Option<(u32, u32)> {
+        self.resolution
+    }
+    pub(crate) fn share_monitor(&self) -> usize {
+        self.share_monitor
+    }
+    pub(crate) fn set_share_monitor(&mut self, index: usize) {
+        self.share_monitor = index;
+    }
     pub(crate) fn stream_count(&self) -> usize {
         self.gpu.as_ref().map(|g| g.streams.len()).unwrap_or(0)
     }
@@ -615,6 +712,18 @@ pub fn run_app(after: Option<Duration>, initial_join: Option<String>) -> Result<
         should_quit: false,
         quit_after: after,
         started: Instant::now(),
+        dark: theme::detect_dark_mode(),
+        page: NavPage::Home,
+        show_share_picker: false,
+        show_pair: false,
+        show_confirm_exit: false,
+        room_label: "Office".into(),
+        viewers: 0,
+        resolution: None,
+        encode_ms: 0.0,
+        dropped: 0,
+        share_monitor: 0,
+        pair_code: "472961".into(),
     };
     if let Some(target) = initial_join {
         app.join_target = Some(target.clone());
@@ -650,15 +759,6 @@ pub fn quality_color(fps: f32) -> Color32 {
     } else {
         Color32::from_rgb(0x8A, 0x8A, 0x8A)
     }
-}
-
-/// Small helper so screens can render consistent section headers.
-pub(crate) fn section_label(ui: &mut egui::Ui, text: &str) {
-    ui.label(
-        RichText::new(text.to_uppercase())
-            .size(11.0)
-            .color(theme::TEXT_SECONDARY),
-    );
 }
 
 #[cfg(test)]

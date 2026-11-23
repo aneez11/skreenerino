@@ -1,24 +1,150 @@
-//! Windows 11 Fluent design tokens and window effects.
+//! Windows 11 Fluent design tokens, matched to `docs/design` mockup.
 
 use egui::Color32;
 
-pub const SURFACE: Color32 = Color32::from_rgb(0x20, 0x20, 0x20);
-pub const SURFACE_RAISED: Color32 = Color32::from_rgb(0x2B, 0x2B, 0x2B);
-pub const SURFACE_HOVER: Color32 = Color32::from_rgb(0x33, 0x33, 0x33);
-pub const SURFACE_ACTIVE: Color32 = Color32::from_rgb(0x3D, 0x3D, 0x3D);
-pub const STROKE: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x3A);
-pub const ACCENT: Color32 = Color32::from_rgb(0x4C, 0xC2, 0xFF);
-pub const TEXT_PRIMARY: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-pub const TEXT_SECONDARY: Color32 = Color32::from_rgb(0xA0, 0xA0, 0xA0);
-pub const DANGER: Color32 = Color32::from_rgb(0xC4, 0x2B, 0x1C);
-pub const SURFACE_LIGHT: Color32 = Color32::from_rgb(0xF3, 0xF3, 0xF3);
-pub const SURFACE_RAISED_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-pub const STROKE_LIGHT: Color32 = Color32::from_rgb(0xE5, 0xE5, 0xE5);
-pub const ACCENT_LIGHT: Color32 = Color32::from_rgb(0x0F, 0x6C, 0xBD);
-pub const TEXT_PRIMARY_LIGHT: Color32 = Color32::from_rgb(0x1A, 0x1A, 0x1A);
-pub const TEXT_SECONDARY_LIGHT: Color32 = Color32::from_rgb(0x61, 0x61, 0x61);
+/// A light/dark pair for one design token.
+#[derive(Debug, Clone, Copy)]
+pub struct Token {
+    pub light: Color32,
+    pub dark: Color32,
+}
 
-/// Read `AppsUseLightTheme` from the registry; defaults to dark on any failure.
+impl Token {
+    pub const fn new(light: u32, dark: u32) -> Self {
+        Self {
+            light: Color32::from_rgb(
+                ((light >> 16) & 0xFF) as u8,
+                ((light >> 8) & 0xFF) as u8,
+                (light & 0xFF) as u8,
+            ),
+            dark: Color32::from_rgb(
+                ((dark >> 16) & 0xFF) as u8,
+                ((dark >> 8) & 0xFF) as u8,
+                (dark & 0xFF) as u8,
+            ),
+        }
+    }
+
+    pub fn get(&self, dark: bool) -> Color32 {
+        if dark {
+            self.dark
+        } else {
+            self.light
+        }
+    }
+}
+
+/// Window background (behind cards).
+pub const WINDOW: Token = Token::new(0xF3F3F3, 0x1B1B1B);
+/// Card / panel surface.
+pub const SURFACE: Token = Token::new(0xFFFFFF, 0x242424);
+/// Slightly raised surface (inputs, tiles).
+pub const SURFACE_ALT: Token = Token::new(0xFAFAFA, 0x2B2B2B);
+/// Hover fill for interactive rows.
+pub const HOVER: Token = Token::new(0xF0F0F0, 0x333333);
+/// Sidebar active pill.
+pub const NAV_ACTIVE: Token = Token::new(0xE8F1FB, 0x2D4356);
+/// Hairline border.
+pub const STROKE: Token = Token::new(0xE5E5E5, 0x3A3A3A);
+/// Accent (Win11 system blue).
+pub const ACCENT: Token = Token::new(0x0F6CBD, 0x4CC2FF);
+/// Accent hover.
+pub const ACCENT_HOVER: Token = Token::new(0x115EA3, 0x62CDFF);
+/// Text on accent fills.
+pub const ON_ACCENT: Token = Token::new(0xFFFFFF, 0x000000);
+/// Primary text.
+pub const TEXT: Token = Token::new(0x1A1A1A, 0xFFFFFF);
+/// Secondary text.
+pub const TEXT_MUTED: Token = Token::new(0x616161, 0xA0A0A0);
+/// Disabled / tertiary text.
+pub const TEXT_FAINT: Token = Token::new(0x8A8A8A, 0x7A7A7A);
+/// Success (online dot, toast check).
+pub const SUCCESS: Token = Token::new(0x0F7B0F, 0x6CCB5F);
+/// Warning.
+pub const WARNING: Token = Token::new(0x9D5D00, 0xFFC83D);
+/// Danger fill (Leave).
+pub const DANGER: Token = Token::new(0xC42B1C, 0xC42B1C);
+/// Danger text on transparent.
+pub const DANGER_TEXT: Token = Token::new(0xC42B1C, 0xFF99A4);
+
+/// Radius used by cards and tiles.
+pub const RADIUS_CARD: u8 = 12;
+/// Radius for buttons, pills and inputs.
+pub const RADIUS_CONTROL: u8 = 8;
+/// Height of primary controls.
+pub const CONTROL_H: f32 = 34.0;
+/// Sidebar width.
+pub const SIDEBAR_W: f32 = 168.0;
+/// Participants rail width.
+pub const RAIL_W: f32 = 236.0;
+
+/// Convenience: current palette for the window.
+#[derive(Debug, Clone, Copy)]
+pub struct Palette {
+    pub dark: bool,
+}
+
+impl Palette {
+    pub fn new(dark: bool) -> Self {
+        Self { dark }
+    }
+    pub fn window(&self) -> Color32 {
+        WINDOW.get(self.dark)
+    }
+    pub fn surface(&self) -> Color32 {
+        SURFACE.get(self.dark)
+    }
+    pub fn surface_alt(&self) -> Color32 {
+        SURFACE_ALT.get(self.dark)
+    }
+    pub fn hover(&self) -> Color32 {
+        HOVER.get(self.dark)
+    }
+    pub fn nav_active(&self) -> Color32 {
+        NAV_ACTIVE.get(self.dark)
+    }
+    pub fn stroke(&self) -> Color32 {
+        STROKE.get(self.dark)
+    }
+    pub fn accent(&self) -> Color32 {
+        ACCENT.get(self.dark)
+    }
+    pub fn accent_hover(&self) -> Color32 {
+        ACCENT_HOVER.get(self.dark)
+    }
+    pub fn on_accent(&self) -> Color32 {
+        ON_ACCENT.get(self.dark)
+    }
+    pub fn text(&self) -> Color32 {
+        TEXT.get(self.dark)
+    }
+    pub fn muted(&self) -> Color32 {
+        TEXT_MUTED.get(self.dark)
+    }
+    pub fn faint(&self) -> Color32 {
+        TEXT_FAINT.get(self.dark)
+    }
+    pub fn success(&self) -> Color32 {
+        SUCCESS.get(self.dark)
+    }
+    pub fn warning(&self) -> Color32 {
+        WARNING.get(self.dark)
+    }
+    pub fn danger(&self) -> Color32 {
+        DANGER.get(self.dark)
+    }
+    pub fn danger_text(&self) -> Color32 {
+        DANGER_TEXT.get(self.dark)
+    }
+    pub fn card_radius(&self) -> egui::CornerRadius {
+        egui::CornerRadius::same(RADIUS_CARD)
+    }
+    pub fn control_radius(&self) -> egui::CornerRadius {
+        egui::CornerRadius::same(RADIUS_CONTROL)
+    }
+}
+
+/// Read `AppsUseLightTheme`; any failure falls back to dark.
 pub fn detect_dark_mode() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -32,7 +158,6 @@ pub fn detect_dark_mode() -> bool {
             .output();
         if let Ok(output) = output {
             let text = String::from_utf8_lossy(&output.stdout);
-            // `AppsUseLightTheme    REG_DWORD    0x1` means light mode.
             if let Some(value) = text.split_whitespace().last() {
                 return !value.eq_ignore_ascii_case("0x1");
             }
@@ -41,64 +166,63 @@ pub fn detect_dark_mode() -> bool {
     true
 }
 
-/// Apply the Fluent palette and metrics to the egui context.
+/// Apply the Fluent palette, metrics and the Segoe UI Variable font.
 pub fn apply(ctx: &egui::Context, dark: bool) {
+    load_system_font(ctx);
+
+    let p = Palette::new(dark);
     let mut visuals = if dark {
         egui::Visuals::dark()
     } else {
         egui::Visuals::light()
     };
-    visuals.panel_fill = if dark { SURFACE } else { SURFACE_LIGHT };
-    visuals.window_fill = if dark {
-        SURFACE_RAISED
-    } else {
-        SURFACE_RAISED_LIGHT
+    visuals.panel_fill = p.window();
+    visuals.window_fill = p.surface();
+    visuals.extreme_bg_color = p.surface_alt();
+    visuals.faint_bg_color = p.surface_alt();
+    visuals.override_text_color = Some(p.text());
+    visuals.hyperlink_color = p.accent();
+    visuals.selection.bg_fill = p.accent().gamma_multiply(0.30);
+    visuals.selection.stroke.color = p.accent();
+    visuals.window_stroke.color = p.stroke();
+    visuals.widgets.noninteractive.bg_fill = p.surface();
+    visuals.widgets.noninteractive.bg_stroke.color = p.stroke();
+    visuals.widgets.noninteractive.fg_stroke.color = p.text();
+    visuals.widgets.inactive.bg_fill = p.surface_alt();
+    visuals.widgets.inactive.weak_bg_fill = p.surface_alt();
+    visuals.widgets.inactive.bg_stroke.color = p.stroke();
+    visuals.widgets.inactive.fg_stroke.color = p.text();
+    visuals.widgets.hovered.bg_fill = p.hover();
+    visuals.widgets.hovered.weak_bg_fill = p.hover();
+    visuals.widgets.hovered.bg_stroke.color = p.accent();
+    visuals.widgets.hovered.fg_stroke.color = p.text();
+    visuals.widgets.active.bg_fill = p.accent().gamma_multiply(0.25);
+    visuals.widgets.active.weak_bg_fill = p.accent().gamma_multiply(0.25);
+    visuals.widgets.active.fg_stroke.color = p.text();
+    visuals.widgets.open.bg_fill = p.surface_alt();
+    visuals.window_corner_radius = p.card_radius();
+    visuals.menu_corner_radius = p.control_radius();
+    visuals.window_shadow = egui::epaint::Shadow {
+        offset: [0, 8],
+        blur: 24,
+        spread: 0,
+        color: Color32::from_black_alpha(if dark { 120 } else { 40 }),
     };
-    visuals.extreme_bg_color = if dark {
-        Color32::from_rgb(0x1A, 0x1A, 0x1A)
-    } else {
-        Color32::from_rgb(0xFA, 0xFA, 0xFA)
-    };
-    visuals.override_text_color = Some(if dark {
-        TEXT_PRIMARY
-    } else {
-        TEXT_PRIMARY_LIGHT
-    });
-    visuals.hyperlink_color = if dark { ACCENT } else { ACCENT_LIGHT };
-    visuals.selection.bg_fill = (if dark { ACCENT } else { ACCENT_LIGHT }).gamma_multiply(0.35);
-    let raised = if dark {
-        SURFACE_RAISED
-    } else {
-        SURFACE_RAISED_LIGHT
-    };
-    let hover = if dark {
-        SURFACE_HOVER
-    } else {
-        Color32::from_rgb(0xF0, 0xF0, 0xF0)
-    };
-    let active = if dark {
-        SURFACE_ACTIVE
-    } else {
-        Color32::from_rgb(0xE5, 0xE5, 0xE5)
-    };
-    visuals.widgets.noninteractive.bg_fill = visuals.panel_fill;
-    visuals.widgets.noninteractive.bg_stroke.color = if dark { STROKE } else { STROKE_LIGHT };
-    visuals.widgets.inactive.bg_fill = raised;
-    visuals.widgets.inactive.weak_bg_fill = raised;
-    visuals.widgets.hovered.bg_fill = hover;
-    visuals.widgets.hovered.weak_bg_fill = hover;
-    visuals.widgets.active.bg_fill = active;
-    visuals.widgets.active.weak_bg_fill = active;
-    visuals.window_corner_radius = egui::CornerRadius::same(8);
-    visuals.menu_corner_radius = egui::CornerRadius::same(8);
+    visuals.popup_shadow = visuals.window_shadow;
     ctx.set_visuals(visuals);
 
     let mut style = (*ctx.style()).clone();
     style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-    style.spacing.button_padding = egui::vec2(14.0, 7.0);
-    style.spacing.interact_size.y = 32.0;
+    style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    style.spacing.interact_size.y = CONTROL_H;
+    style.spacing.window_margin = egui::Margin::same(16);
+    style.spacing.menu_margin = egui::Margin::same(6);
     style.text_styles.insert(
         egui::TextStyle::Body,
+        egui::FontId::new(13.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Button,
         egui::FontId::new(13.0, egui::FontFamily::Proportional),
     );
     style.text_styles.insert(
@@ -106,22 +230,45 @@ pub fn apply(ctx: &egui::Context, dark: bool) {
         egui::FontId::new(20.0, egui::FontFamily::Proportional),
     );
     style.text_styles.insert(
-        egui::TextStyle::Button,
-        egui::FontId::new(13.0, egui::FontFamily::Proportional),
+        egui::TextStyle::Small,
+        egui::FontId::new(11.0, egui::FontFamily::Proportional),
+    );
+    style.text_styles.insert(
+        egui::TextStyle::Monospace,
+        egui::FontId::new(13.0, egui::FontFamily::Monospace),
     );
     ctx.set_style(style);
 }
 
-/// Apply Windows 11 DWM effects: Mica backdrop, rounded corners, dark titlebar.
-///
-/// Every call is best-effort: on Windows 10 or an unsupported build the window
-/// simply keeps the default opaque frame.
+/// Prefer Segoe UI Variable (Windows 11) when present, else Segoe UI.
+fn load_system_font(ctx: &egui::Context) {
+    const CANDIDATES: [&str; 3] = [
+        r"C:\Windows\Fonts\SegUIVar.ttf",
+        r"C:\Windows\Fonts\segoeui.ttf",
+        r"C:\Windows\Fonts\segoeuib.ttf",
+    ];
+    for path in CANDIDATES {
+        if let Ok(bytes) = std::fs::read(path) {
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                "system".to_owned(),
+                std::sync::Arc::new(egui::FontData::from_owned(bytes)),
+            );
+            if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+                family.insert(1, "system".to_owned());
+            }
+            ctx.set_fonts(fonts);
+            return;
+        }
+    }
+}
+
+/// Best-effort Windows 11 window effects: Mica backdrop, rounded corners, dark titlebar.
 pub fn apply_window_effects(window: &winit::window::Window, dark: bool) {
     #[cfg(target_os = "windows")]
     {
         use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
-        // DWMWINDOWATTRIBUTE values (undocumented-but-stable ids).
         const DWMWA_USE_IMMERSIVE_DARK_MODE: u32 = 20;
         const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
         const DWMWA_SYSTEMBACKDROP_TYPE: u32 = 38;
@@ -154,7 +301,6 @@ pub fn apply_window_effects(window: &winit::window::Window, dark: bool) {
                 &dark_flag as *const i32 as *const core::ffi::c_void,
                 std::mem::size_of::<i32>() as u32,
             );
-
             let corner: i32 = DWMWCP_ROUND as i32;
             let _ = DwmSetWindowAttribute(
                 hwnd,
@@ -162,8 +308,6 @@ pub fn apply_window_effects(window: &winit::window::Window, dark: bool) {
                 &corner as *const i32 as *const core::ffi::c_void,
                 std::mem::size_of::<i32>() as u32,
             );
-
-            // Mica; ignored on Windows 10 and on builds without the attribute.
             let backdrop: i32 = DWMSBT_MAINWINDOW as i32;
             let _ = DwmSetWindowAttribute(
                 hwnd,
@@ -184,20 +328,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn detect_dark_mode_returns_a_bool_without_panicking() {
+    fn token_parsing_matches_hex() {
+        let t = Token::new(0x0F6CBD, 0x4CC2FF);
+        assert_eq!(t.light, Color32::from_rgb(0x0F, 0x6C, 0xBD));
+        assert_eq!(t.dark, Color32::from_rgb(0x4C, 0xC2, 0xFF));
+    }
+
+    #[test]
+    fn palette_selects_by_mode() {
+        let light = Palette::new(false);
+        let dark = Palette::new(true);
+        assert_ne!(light.surface(), dark.surface());
+        assert_ne!(light.text(), dark.text());
+        assert_eq!(light.accent(), ACCENT.light);
+        assert_eq!(dark.accent(), ACCENT.dark);
+    }
+
+    #[test]
+    fn detect_dark_mode_does_not_panic() {
         let _ = detect_dark_mode();
-    }
-
-    #[test]
-    fn theme_tokens_are_distinct() {
-        assert_ne!(SURFACE, SURFACE_RAISED);
-        assert_ne!(TEXT_PRIMARY, TEXT_SECONDARY);
-        assert_ne!(ACCENT, DANGER);
-    }
-
-    #[test]
-    fn light_and_dark_palettes_differ() {
-        assert_ne!(SURFACE, SURFACE_LIGHT);
-        assert_ne!(ACCENT, ACCENT_LIGHT);
     }
 }
