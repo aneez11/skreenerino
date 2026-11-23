@@ -49,6 +49,7 @@ impl Relay {
     /// Accept a presenter: read its datagrams and publish them upstream.
     pub async fn accept_presenter(&self, conn: quinn::Connection) -> Result<u64> {
         let mut count = 0u64;
+        tracing::debug!("presenter connected to relay");
         loop {
             match conn.read_datagram().await {
                 Ok(payload) => {
@@ -59,6 +60,9 @@ impl Relay {
                     }
                     self.bytes_forwarded
                         .fetch_add(payload.len() as u64, Ordering::Relaxed);
+                    if count % 50 == 0 {
+                        tracing::debug!(count, "relay forwarding");
+                    }
                     let _ = self.upstream.send(payload.to_vec());
                     count += 1;
                 }
@@ -74,6 +78,7 @@ impl Relay {
     pub async fn serve_viewer(&self, conn: quinn::Connection) -> Result<u64> {
         let mut rx = self.upstream.subscribe();
         let mut count = 0u64;
+        tracing::debug!("viewer subscribed to relay upstream");
         loop {
             match rx.recv().await {
                 Ok(payload) => {

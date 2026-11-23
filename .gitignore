@@ -12,3 +12,5 @@ serve.err.txt
 .DS_Store
 Thumbs.db
 .codebase-memory/
+send.out.txt
+send.err.txt

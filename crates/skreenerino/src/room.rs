@@ -418,6 +418,11 @@ fn encode_thread(
             }
         }
 
+        // Periodic keyframe so late joiners become decodable promptly.
+        if shared.stats.frames.load(Ordering::Relaxed) % cfg.fps.max(1) as u64 == 0 {
+            encoder.force_keyframe();
+        }
+
         let f = skreen_capture::scale::maybe_scale(f, cfg.scale);
         for packet in encoder.encode(&f.rgba, f.width, f.height, f.timestamp_us)? {
             if tx.receiver_count() > 0 {

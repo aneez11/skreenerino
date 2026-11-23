@@ -241,12 +241,19 @@ mod presenter {
         let mut frame = Some(first);
         let mut last_send = Instant::now();
         let mut sent_frames = 0u64;
+        // Periodic keyframe so late joiners (including viewers behind a relay)
+        // become decodable without waiting for a request round trip.
+        let keyframe_interval = cfg.fps.max(1) as u64;
 
         'present: while let Some(f) = frame.take() {
             if last_send.elapsed() < frame_budget {
                 tokio::time::sleep(frame_budget - last_send.elapsed()).await;
             }
             last_send = Instant::now();
+
+            if sent_frames % keyframe_interval == 0 {
+                encoder.force_keyframe();
+            }
 
             for packet in encoder.encode(&f.rgba, f.width, f.height, f.timestamp_us)? {
                 for frag in fragmenter.fragment(
