@@ -94,6 +94,7 @@ where
     #[cfg(feature = "audio")]
     let audio_tx = broadcast::channel::<Arc<Vec<u8>>>(32).0;
 
+    #[cfg(feature = "audio")]
     let wants_audio = cfg.audio;
 
     let encoder = {

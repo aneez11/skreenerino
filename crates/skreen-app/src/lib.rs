@@ -5,6 +5,7 @@ pub mod nack;
 #[cfg(feature = "audio")]
 pub mod audio;
 pub mod discovery;
+pub mod model;
 pub mod viewer;
 
 #[cfg(all(feature = "xcap", feature = "h264", feature = "quic"))]
@@ -94,6 +95,6 @@ impl ViewerStats {
 }
 
 /// Where decoded frames go. Implemented by the CLI viewer and the GUI.
-pub trait FrameSink: Send + 'static {
+pub trait FrameSink: Send + Sync + 'static {
     fn push(&self, stream: &str, frame: RgbaFrame);
 }

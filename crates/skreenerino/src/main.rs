@@ -1,7 +1,15 @@
+#[cfg(feature = "gui")]
+mod app;
 #[cfg(feature = "audio")]
 mod audio_stream;
 mod gateway;
 mod latency;
+#[cfg(feature = "gui")]
+mod runtime;
+#[cfg(feature = "gui")]
+mod screens;
+#[cfg(feature = "gui")]
+mod theme;
 // nack + viewer now live in skreen-app
 mod relay;
 use skreen_app::presenter as room;
@@ -40,6 +48,16 @@ enum Commands {
     Soak {
         #[arg(long, default_value_t = 5)]
         minutes: u32,
+    },
+    /// Open the desktop application window
+    #[cfg(feature = "gui")]
+    App {
+        /// Join this room or host:port immediately on startup
+        #[arg(long)]
+        join: Option<String>,
+        /// Close automatically after this many seconds (for scripted runs)
+        #[arg(long)]
+        exit_after: Option<u64>,
     },
     /// Show several presenters in one window as a grid wall
     Wall {
@@ -152,6 +170,11 @@ async fn main() -> Result<()> {
         Commands::Watch { addr, frames, gui } => watch(addr, frames, gui).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
+        #[cfg(feature = "gui")]
+        Commands::App { exit_after, join } => {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            app::run_app(exit_after.map(std::time::Duration::from_secs), join)
+        }
         Commands::Wall { streams, frames } => wall(streams, frames).await,
         Commands::Relay { bind } => relay::run_relay(bind).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
