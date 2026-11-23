@@ -8,11 +8,11 @@ use skreen_codec::{h264::OpenH264Encoder, Encoder, EncodedPacket};
 use skreen_proto::fragment::Fragmenter;
 use skreen_proto::media::MediaDatagram;
 use skreen_proto::{Capabilities, ControlMessage, DeviceId, PROTOCOL_VERSION};
-use skreen_transport::quic;
+use skreen_transport::{control, quic, retransmit::RetransmitBuffer};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::io::AsyncWriteExt;
+
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone)]
@@ -122,6 +122,10 @@ async fn viewer_task(
     let fragmenter = Fragmenter::new(skreen_transport::mtu_safe_payload(quic::DEFAULT_MTU, 128));
     let mut sequence = 0u64;
 
+    // The control reader hands retransmission requests to the send loop.
+    let (nack_tx, mut nack_rx) =
+        tokio::sync::mpsc::unbounded_channel::<Vec<u64>>();
+
     if let Ok((mut control, mut remote_control)) = quic::open_control(&conn).await {
         let hello = skreen_proto::encode_control(&ControlMessage::Hello {
             version: PROTOCOL_VERSION,
@@ -134,60 +138,83 @@ async fn viewer_task(
                 platform: std::env::consts::OS.into(),
             },
         })?;
-        let _ = control.write_all(&hello).await;
-        let _ = control.flush().await;
+        let _ = control::write_frame(&mut control, &hello).await;
 
-        let shared = shared.clone();
+        let shared_ctrl = shared.clone();
         tokio::spawn(async move {
-            let mut buf = vec![0u8; 4096];
             loop {
-                match remote_control.read(&mut buf).await {
-                    Ok(Some(0)) | Ok(None) => break,
-                    Ok(Some(n)) => {
-                        if let Ok(ControlMessage::KeyframeRequest { .. }) =
-                            skreen_proto::decode_control(&buf[..n])
-                        {
-                            shared.request_keyframe();
+                match control::read_frame(&mut remote_control).await {
+                    Ok(Some(frame)) => match skreen_proto::decode_control(&frame) {
+                        Ok(ControlMessage::KeyframeRequest { .. }) => shared_ctrl.request_keyframe(),
+                        Ok(ControlMessage::Nack { sequences, .. }) => {
+                            let _ = nack_tx.send(sequences);
                         }
-                    }
+                        Ok(_) => {}
+                        Err(_) => {}
+                    },
+                    Ok(None) => break,
                     Err(_) => break,
                 }
             }
         });
     }
 
-    loop {
-        let packet = match rx.recv().await {
-            Ok(packet) => packet,
-            Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                tracing::warn!("viewer lagged {skipped} frames");
-                continue;
-            }
-            Err(broadcast::error::RecvError::Closed) => return Ok(()),
-        };
+    // Retain recent datagrams so a NACK from this viewer can be answered without
+    // re-encoding anything.
+    let mut retransmit = RetransmitBuffer::new(1024);
 
-        for frag in fragmenter.fragment(
-            "main",
-            sequence,
-            packet.timestamp_us,
-            packet.keyframe,
-            &packet.bytes,
-        ) {
-            let datagram = MediaDatagram {
-                stream: frag.stream,
-                sequence: frag.sequence,
-                timestamp_us: frag.timestamp_us,
-                keyframe: frag.keyframe,
-                fragment_index: frag.fragment_index,
-                fragment_count: frag.fragment_count,
-                frame_bytes: packet.bytes.len() as u32,
-                payload: frag.payload,
-            };
-            let body = skreen_proto::media::encode_media(&datagram)?;
-            quic::send_datagram(&conn, Bytes::from(body)).await?;
-            shared.stats.datagrams.fetch_add(1, Ordering::Relaxed);
+    loop {
+        tokio::select! {
+            nack = nack_rx.recv() => {
+                if let Some(sequences) = nack {
+                    let (hits, misses) = {
+                        let recovered = retransmit.recover(&sequences);
+                        for datagram in recovered {
+                            let body = skreen_proto::media::encode_media(&datagram)?;
+                            let _ = quic::send_datagram(&conn, Bytes::from(body)).await;
+                            shared.stats.datagrams.fetch_add(1, Ordering::Relaxed);
+                        }
+                        retransmit.stats()
+                    };
+                    tracing::debug!(?hits, ?misses, "answered NACK");
+                }
+            }
+            packet = rx.recv() => {
+                let packet = match packet {
+                    Ok(packet) => packet,
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        tracing::warn!("viewer lagged {skipped} frames");
+                        shared.request_keyframe();
+                        continue;
+                    }
+                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                };
+
+                for frag in fragmenter.fragment(
+                    "main",
+                    sequence,
+                    packet.timestamp_us,
+                    packet.keyframe,
+                    &packet.bytes,
+                ) {
+                    let datagram = MediaDatagram {
+                        stream: frag.stream,
+                        sequence: frag.sequence,
+                        timestamp_us: frag.timestamp_us,
+                        keyframe: frag.keyframe,
+                        fragment_index: frag.fragment_index,
+                        fragment_count: frag.fragment_count,
+                        frame_bytes: packet.bytes.len() as u32,
+                        payload: frag.payload,
+                    };
+                    let body = skreen_proto::media::encode_media(&datagram)?;
+                    quic::send_datagram(&conn, Bytes::from(body)).await?;
+                    shared.stats.datagrams.fetch_add(1, Ordering::Relaxed);
+                    retransmit.record(datagram);
+                }
+                sequence += 1;
+            }
         }
-        sequence += 1;
     }
 }
 
@@ -245,4 +272,6 @@ fn encode_thread(
     tracing::info!("encoder thread stopped");
     Ok(())
 }
+
+
 

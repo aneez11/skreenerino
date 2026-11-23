@@ -1,5 +1,6 @@
 ﻿mod gateway;
 mod latency;
+mod nack;
 mod relay;
 mod room;
 mod soak;
@@ -571,6 +572,12 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
         let mut reassembler = Reassembler::default();
         let mut decoder = OpenH264Decoder::new()?;
 
+        // Control channel for NACKs and keyframe requests back to the presenter.
+        let mut control_writer = quic::open_control(&conn).await.ok().map(|(send, _recv)| send);
+        let mut nack_scheduler =
+            crate::nack::NackScheduler::new(64, std::time::Duration::from_millis(40));
+        let mut last_nack_poll = std::time::Instant::now();
+
         #[cfg(feature = "viewer")]
         let _viewer = viewer::start("skreenerino viewer")?;
 
@@ -600,6 +607,24 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             };
             if datagram.keyframe {
                 keyframes += 1;
+            }
+            nack_scheduler.observe(datagram.sequence);
+
+            // Ask the presenter to resend any settled gaps.
+            if last_nack_poll.elapsed() >= std::time::Duration::from_millis(40) {
+                last_nack_poll = std::time::Instant::now();
+                let missing = nack_scheduler.poll(std::time::Instant::now());
+                if !missing.is_empty() {
+                    if let Some(writer) = control_writer.as_mut() {
+                        let msg = skreen_proto::ControlMessage::Nack {
+                            stream: skreen_proto::StreamId("main".into()),
+                            sequences: missing.clone(),
+                        };
+                        if let Ok(bytes) = skreen_proto::encode_control(&msg) {
+                            let _ = skreen_transport::control::write_frame(writer, &bytes).await;
+                        }
+                    }
+                }
             }
             let Some(frame_bytes) = reassembler.push(skreen_proto::fragment::FrameFragment {
                 stream: datagram.stream,
@@ -673,6 +698,8 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
 
 
 

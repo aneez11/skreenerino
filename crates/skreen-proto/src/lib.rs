@@ -44,6 +44,8 @@ pub enum ControlMessage {
     StreamStart { stream: StreamId },
     StreamStop { stream: StreamId },
     KeyframeRequest { stream: StreamId },
+    /// Request retransmission of specific fragments (NACK).
+    Nack { stream: StreamId, sequences: Vec<u64> },
     QualityReport { stream: StreamId, rtt_ms: u32, loss_permille: u32, decode_ms: u32 },
     RoleChange { device: DeviceId, role: Role },
     Heartbeat { ts_ms: u64 },
@@ -74,6 +76,7 @@ pub fn encode_control(msg: &ControlMessage) -> Result<Vec<u8>, ProtoError> {
 pub fn decode_control(bytes: &[u8]) -> Result<ControlMessage, ProtoError> {
     Ok(postcard::from_bytes(bytes)?)
 }
+
 
 
 
