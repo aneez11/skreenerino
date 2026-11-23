@@ -12,6 +12,7 @@ h264 = ["skreen-codec/h264"]
 quic = ["skreen-transport/quic", "dep:quinn", "dep:rustls"]
 mdns = ["skreen-discovery/mdns"]
 viewer = ["skreen-render/wgpu", "dep:pollster"]
+gui = ["viewer", "skreen-render/gui"]
 audio = ["skreen-audio/native"]
 soak = []
 
@@ -35,6 +36,7 @@ skreen-security.workspace = true
 skreen-render.workspace = true
 skreen-audio.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
 
 
 

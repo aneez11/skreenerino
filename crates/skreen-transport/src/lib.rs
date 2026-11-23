@@ -28,10 +28,42 @@ pub mod quic {
     pub const ALPN: &[u8] = b"skreenerino/1";
     pub const DEFAULT_MTU: usize = 1200;
 
+    /// Load the device certificate, generating and persisting one on first run.
+    /// A stable identity is what makes TOFU pinning meaningful: without it every
+    /// server restart would present a new certificate and be refused.
+    fn load_or_create_identity() -> Result<(Vec<u8>, Vec<u8>)> {
+        let dir = std::env::var_os("SKREENERINO_CONFIG_DIR")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from(".skreenerino"));
+        let cert_path = dir.join("identity_cert.der");
+        let key_path = dir.join("identity_key.der");
+        if let (Ok(cert), Ok(key)) = (std::fs::read(&cert_path), std::fs::read(&key_path)) {
+            return Ok((cert, key));
+        }
+        let generated = rcgen::generate_simple_self_signed(vec!["skreenerino.local".to_string()])?;
+        let cert_der = generated.cert.der().to_vec();
+        let key_der = generated.signing_key.serialize_der();
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(&cert_path, &cert_der)?;
+        std::fs::write(&key_path, &key_der)?;
+        restrict_key_permissions(&key_path);
+        tracing::info!(path = %cert_path.display(), "generated device identity");
+        Ok((cert_der, key_der))
+    }
+
+    /// Best-effort: keep the private key out of casual view. Failure is not fatal.
+    fn restrict_key_permissions(path: &std::path::Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+        #[cfg(not(unix))]
+        let _ = path;
+    }
+
     fn insecure_server_config() -> Result<ServerConfig> {
-        let cert = rcgen::generate_simple_self_signed(vec!["skreenerino.local".to_string()])?;
-        let cert_der = cert.cert.der().to_vec();
-        let key_der = cert.signing_key.serialize_der();
+        let (cert_der, key_der) = load_or_create_identity()?;
         let mut crypto = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(

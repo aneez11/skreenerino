@@ -32,6 +32,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 quinn = "0.11"
 mdns-sd = "0.13"
 wgpu = "24"
+egui = "0.31.1"
+egui-wgpu = "0.31.1"
+egui-winit = "0.31.1"
 pollster = "0.4"
 winit = "0.30"
 cpal = "0.15"
@@ -46,5 +49,6 @@ skreen-session = { path = "crates/skreen-session" }
 skreen-security = { path = "crates/skreen-security" }
 skreen-render = { path = "crates/skreen-render" }
 skreen-audio = { path = "crates/skreen-audio" }
+
 
 

@@ -8,6 +8,7 @@ authors.workspace = true
 [features]
 default = []
 wgpu = ["dep:wgpu", "dep:winit", "dep:pollster"]
+gui = ["wgpu", "dep:egui", "dep:egui-wgpu", "dep:egui-winit"]
 
 [dependencies]
 anyhow.workspace = true
@@ -16,4 +17,9 @@ tracing.workspace = true
 wgpu = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
 pollster = { version = "0.4", optional = true }
+egui = { workspace = true, optional = true }
+egui-wgpu = { workspace = true, optional = true, features = ["winit"] }
+egui-winit = { workspace = true, optional = true, default-features = false, features = ["clipboard", "links"] }
+
+
 

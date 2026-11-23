@@ -59,7 +59,7 @@ enum Commands {
         #[arg(long, default_value_t = 300)]
         frames: u32,
     },
-    /// Discover peers (stub until mDNS browse loop lands)
+    /// List peers advertising over mDNS
     Discover,
     /// Capture -> openh264 -> file spike (no network)
     Spike {
@@ -111,6 +111,9 @@ enum Commands {
         addr: SocketAddr,
         #[arg(long, default_value_t = 300)]
         frames: u32,
+        /// Render in the egui window instead of a bare video surface
+        #[arg(long, default_value_t = false)]
+        gui: bool,
     },
 }
 
@@ -146,7 +149,7 @@ async fn main() -> Result<()> {
             audio,
             scale,
         } => serve(bind, bitrate, fps, name, room, multi, audio, scale).await,
-        Commands::Watch { addr, frames } => watch(addr, frames).await,
+        Commands::Watch { addr, frames, gui } => watch(addr, frames, gui).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
         Commands::Wall { streams, frames } => wall(streams, frames).await,
@@ -443,10 +446,14 @@ mod viewer {
         }
     }
 
-    pub fn start(title: &str) -> Result<Option<ViewerHandle>> {
+    /// Returns `None` when the viewer is suppressed (headless/CI).
+    fn viewer_disabled() -> bool {
         let path = std::env::current_exe().unwrap_or_default();
-        if std::env::var("SKREENERINO_NO_VIEWER").is_ok() || path.to_string_lossy().contains("deps")
-        {
+        std::env::var("SKREENERINO_NO_VIEWER").is_ok() || path.to_string_lossy().contains("deps")
+    }
+
+    pub fn start(title: &str) -> Result<Option<ViewerHandle>> {
+        if viewer_disabled() {
             tracing::warn!("viewer disabled");
             return Ok(None);
         }
@@ -456,6 +463,58 @@ mod viewer {
             .name("skreenerino-viewer".into())
             .spawn(move || skreen_render::wgpu_viewer::run_blocking(title, rx))?;
         Ok(Some(ViewerHandle {
+            tx,
+            thread: Some(thread),
+        }))
+    }
+
+    /// egui shell: same stream, plus the Fluent window chrome and stats strip.
+    #[cfg(feature = "gui")]
+    pub struct GuiHandle {
+        tx: std::sync::mpsc::SyncSender<skreen_render::gui::GuiInput>,
+        thread: Option<std::thread::JoinHandle<Result<skreen_render::gui::GuiReport>>>,
+    }
+
+    #[cfg(feature = "gui")]
+    impl GuiHandle {
+        pub fn push(&self, key: &str, frame: RgbaFrame) {
+            let _ = self.tx.try_send(skreen_render::gui::GuiInput::Frame {
+                key: key.to_string(),
+                frame: Arc::new(frame),
+            });
+        }
+    }
+
+    #[cfg(feature = "gui")]
+    impl Drop for GuiHandle {
+        fn drop(&mut self) {
+            // Wake the window thread so it can observe the close request.
+            let _ = self.tx.try_send(skreen_render::gui::GuiInput::End);
+            if let Some(handle) = self.thread.take() {
+                match handle.join() {
+                    Ok(Ok(report)) => println!(
+                        "gui: {:.1} fps, {} frames in {:.1}s across {} stream(s)",
+                        report.fps, report.frames_shown, report.elapsed_secs, report.streams
+                    ),
+                    Ok(Err(e)) => eprintln!("gui: {e:#}"),
+                    Err(_) => eprintln!("gui: window thread panicked"),
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "gui")]
+    pub fn start_gui(title: &str, limit: Option<u32>) -> Result<Option<GuiHandle>> {
+        if viewer_disabled() {
+            tracing::warn!("gui disabled");
+            return Ok(None);
+        }
+        let (tx, rx) = skreen_render::gui::keyed_channel(4);
+        let title = title.to_string();
+        let thread = std::thread::Builder::new()
+            .name("skreenerino-gui".into())
+            .spawn(move || skreen_render::gui::run_blocking_gui(title, rx, limit))?;
+        Ok(Some(GuiHandle {
             tx,
             thread: Some(thread),
         }))
@@ -769,7 +828,7 @@ async fn wall(streams: Vec<String>, max_frames: u32) -> Result<()> {
     }
 }
 
-async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
+async fn watch(addr: SocketAddr, max_frames: u32, use_gui: bool) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {
         use skreen_codec::{h264::OpenH264Decoder, Decoder};
@@ -827,8 +886,20 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                 }
             }
         };
-        let mut heartbeat_sent = std::time::Instant::now();
+        #[cfg(all(feature = "gui"))]
+        let _gui = if use_gui {
+            viewer::start_gui("skreenerino", Some(max_frames))?
+        } else {
+            None
+        };
+        #[cfg(all(feature = "viewer", not(feature = "gui")))]
         let _viewer = viewer::start("skreenerino viewer")?;
+        #[cfg(all(feature = "viewer", feature = "gui"))]
+        let _viewer = if use_gui {
+            None
+        } else {
+            viewer::start("skreenerino viewer")?
+        };
 
         let mut datagrams = 0u64;
         let mut frames = 0u32;
@@ -939,7 +1010,22 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                     if *size == (0, 0) {
                         *size = (frame.width as usize, frame.height as usize);
                     }
-                    #[cfg(feature = "viewer")]
+                    #[cfg(all(feature = "viewer", feature = "gui"))]
+                    {
+                        let out = skreen_render::RgbaFrame {
+                            size: skreen_render::FrameSize {
+                                width: frame.width,
+                                height: frame.height,
+                            },
+                            pixels: frame.rgba,
+                        };
+                        match (_gui.as_ref(), _viewer.as_ref()) {
+                            (Some(gui), _) => gui.push("main", out),
+                            (None, Some(v)) => v.push(out),
+                            _ => {}
+                        }
+                    }
+                    #[cfg(all(feature = "viewer", not(feature = "gui")))]
                     if let Some(ref viewer) = _viewer {
                         viewer.push(skreen_render::RgbaFrame {
                             size: skreen_render::FrameSize {
@@ -989,7 +1075,7 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
 async fn join(room: &str, frames: u32) -> Result<()> {
     if let Some(peer) = skreen_discovery::parse_manual_endpoint(room) {
         let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
-        return watch(addr, frames).await;
+        return watch(addr, frames, false).await;
     }
     let peers = browse_peers()?;
     let Some(peer) = peers
@@ -1000,5 +1086,5 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     };
     let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
     println!("joining {} at {}", peer.device.0, addr);
-    watch(addr, frames).await
+    watch(addr, frames, false).await
 }

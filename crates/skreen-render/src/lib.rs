@@ -1,5 +1,7 @@
 //! Frame surface abstraction. The `wgpu` feature provides a real window.
 
+#[cfg(feature = "gui")]
+pub mod gui;
 pub mod layout;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
