@@ -1,4 +1,6 @@
-﻿mod gateway;
+﻿#[cfg(feature = "audio")]
+mod audio_stream;
+mod gateway;
 mod latency;
 mod nack;
 mod relay;
@@ -713,6 +715,7 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
 
 
 
