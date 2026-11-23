@@ -1,4 +1,5 @@
 ﻿mod latency;
+mod relay;
 mod room;
 mod spike;
 
@@ -22,6 +23,11 @@ enum Commands {
         bitrate: u32,
         #[arg(long, default_value_t = 30)]
         fps: u32,
+    },
+    /// Run relay/SFU endpoint: forwards one presenter to many viewers
+    Relay {
+        #[arg(long, default_value = "0.0.0.0:7662")]
+        bind: SocketAddr,
     },
     /// Join a room (host:port) and display the stream
     Join {
@@ -94,6 +100,7 @@ async fn main() -> Result<()> {
         Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
         Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
+        Commands::Relay { bind } => relay::run_relay(bind).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
         Commands::AudioTest { frames } => audio_test(frames),
     }
@@ -569,6 +576,7 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
 
 
 

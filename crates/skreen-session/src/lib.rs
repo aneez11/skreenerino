@@ -72,6 +72,37 @@ impl Room {
         if let Some(p) = self.participants.get_mut(&to.0) { p.state = ParticipantState::Presenting(stream.clone()); }
         Ok(())
     }
+
+    /// Multi-presenter: a participant may own more than one stream.
+    pub fn active_streams(&self) -> Vec<(StreamId, DeviceId)> {
+        let mut out: Vec<(StreamId, DeviceId)> = self
+            .streams
+            .iter()
+            .map(|(stream, device)| (StreamId(stream.clone()), device.clone()))
+            .collect();
+        out.sort_by(|a, b| a.0 .0.cmp(&b.0 .0));
+        out
+    }
+
+    pub fn presenters(&self) -> Vec<&Participant> {
+        self.participants.values().filter(|p| matches!(p.state, ParticipantState::Presenting(_))).collect()
+    }
+
+    pub fn stop_presenting(&mut self, device: &DeviceId) -> Vec<StreamId> {
+        let owned: Vec<String> = self
+            .streams
+            .iter()
+            .filter(|(_, owner)| *owner == device)
+            .map(|(stream, _)| stream.clone())
+            .collect();
+        for stream in &owned {
+            self.streams.remove(stream);
+        }
+        if let Some(p) = self.participants.get_mut(&device.0) {
+            p.state = ParticipantState::Idle;
+        }
+        owned.into_iter().map(StreamId).collect()
+    }
 }
 
 #[cfg(test)]
@@ -90,6 +121,24 @@ mod tests {
     }
 
     #[test]
+    fn multi_presenter_streams_and_stop() {
+        use skreen_proto::Role;
+        let mut room = Room::default();
+        let a = DeviceId("a".into());
+        let b = DeviceId("b".into());
+        room.join(a.clone(), Role::Presenter);
+        room.join(b.clone(), Role::Presenter);
+        room.request_present(&a, StreamId("sa".into())).unwrap();
+        room.request_present(&b, StreamId("sb".into())).unwrap();
+        assert_eq!(room.active_streams().len(), 2);
+        assert_eq!(room.presenters().len(), 2);
+        let stopped = room.stop_presenting(&a);
+        assert_eq!(stopped.len(), 1);
+        assert_eq!(room.active_streams().len(), 1);
+        assert_eq!(room.presenters().len(), 1);
+    }
+
+    #[test]
     fn present_view_transfer() {
         let mut room = Room::default();
         let a = DeviceId("a".into()); let b = DeviceId("b".into());
@@ -101,3 +150,4 @@ mod tests {
         assert_eq!(room.streams.get("s1"), Some(&b));
     }
 }
+

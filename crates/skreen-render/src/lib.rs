@@ -1,6 +1,6 @@
 ﻿//! Frame surface abstraction. The `wgpu` feature provides a real window.
 
-use std::sync::mpsc::Receiver;
+pub mod layout;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameSize {
@@ -24,3 +24,4 @@ impl RgbaFrame {
 
 #[cfg(feature = "wgpu")]
 pub mod wgpu_viewer;
+
