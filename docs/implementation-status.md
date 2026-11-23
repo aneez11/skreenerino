@@ -38,8 +38,8 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 
 | Item | Status |
 |---|---|
-| macOS capture (ScreenCaptureKit) | Scaffolded; returns an explicit "not yet implemented" error |
-| Linux capture (PipeWire/X11) | Backend detection scaffolded; capture not implemented |
+'| macOS capture | Uses the `xcap` ScreenCaptureKit path behind `default_capturer()`; requires Screen Recording permission (unverified: no Mac) |'
+| Linux capture | X11 works through `xcap`; Wayland needs an xdg-desktop-portal ScreenCast session (unverified: no Linux host) |
 | Hardware encoders | Selection layer reports candidates and falls back to software with an explicit reason; driver bindings not implemented |
 | Audio over the wire | Room `--audio` streams one capture to all viewers; viewer decodes and plays through cpal |
 | NACK retransmission | Implemented end to end over a duplex control stream: viewer detects gaps, presenter resends from a bounded buffer |
@@ -58,6 +58,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
 

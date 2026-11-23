@@ -79,8 +79,9 @@ pub mod macos_backend {
     impl ScreenCaptureKitCapturer {
         pub fn primary() -> Result<Self> {
             anyhow::bail!(
-                "macOS capture backend not yet implemented: add the `screencapturekit` dependency \
-                 and request Screen Recording permission"
+                "macOS capture uses ScreenCaptureKit, which is not implemented yet. The `xcap` \
+                 backend does support macOS if the Screen Recording permission is granted; \
+                 prefer `default_capturer()`"
             )
         }
     }
@@ -138,7 +139,11 @@ pub mod linux_backend {
 
 /// Platform-appropriate capturer, or a clear error on unsupported targets.
 pub fn default_capturer() -> Result<Box<dyn ScreenCapturer>> {
-    #[cfg(feature = "xcap")]
+    #[cfg(all(target_os = "linux", feature = "xcap"))]
+    {
+        return linux_backend::capturer();
+    }
+    #[cfg(all(not(target_os = "linux"), feature = "xcap"))]
     {
         Ok(Box::new(xcap_backend::XcapCapturer::primary()?))
     }
