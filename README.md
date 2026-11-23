@@ -11,6 +11,7 @@ for exactly what works today.
 ```powershell
 # terminal 1: share this machine's screen
 skreenerino serve --bind 0.0.0.0:7654 --fps 30 --bitrate 4000000 --name desk --room classroom --multi
+#   add --scale 0.5 for half resolution, --audio to also send the microphone
 
 # terminal 2 (another machine): watch the live window
 skreenerino join classroom
@@ -73,3 +74,4 @@ viewer, multi-viewer fan-out, relay, browser gateway, audio codec, CI, and
 packaging. macOS/Linux capture backends, hardware encoders, mobile clients, and
 real two-machine LAN validation are the remaining gaps. See
 `docs/implementation-status.md`.
+

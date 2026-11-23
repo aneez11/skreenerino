@@ -8,7 +8,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 
 | Capability | Evidence |
 |---|---|
-| Workspace builds and tests pass | `cargo test --workspace` → 57 tests |
+| Workspace builds and tests pass | `cargo test --workspace` → 57 tests; `--features audio` → 11 more |
 | Screen capture (Windows) | `spike` wrote 20 H.264 frames; `serve` streams the primary monitor |
 | H.264 encode (openh264, screen-content tune) | `skreen-codec::h264::OpenH264Encoder` |
 | H.264 decode | `watch` decoded 150 frames in release |
@@ -58,6 +58,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
 
