@@ -653,6 +653,20 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             crate::nack::NackScheduler::new(64, std::time::Duration::from_millis(40));
         let mut last_nack_poll = std::time::Instant::now();
         let mut last_decode_ms = 0u32;
+        #[cfg(feature = "audio")]
+        let audio_stats = std::sync::Arc::new(crate::audio_stream::AudioStats::default());
+        #[cfg(feature = "audio")]
+        let mut audio_player = {
+            let sink = skreen_audio::cpal_sink::AudioSink::new();
+            let decoder = skreen_audio::opus_codec::OpusTalkDecoder::new();
+            match (sink, decoder) {
+                (Ok(s), Ok(d)) => Some((s, d)),
+                _ => {
+                    tracing::warn!("no audio output device; audio will be ignored");
+                    None
+                }
+            }
+        };
         let mut heartbeat_sent = std::time::Instant::now();
         let _viewer = viewer::start("skreenerino viewer")?;
 
@@ -676,9 +690,29 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             datagrams += 1;
             bytes += payload.len();
 
-            let Ok(datagram) = decode_media(&payload) else {
-                tracing::warn!("dropping undecodable datagram");
-                continue;
+            let datagram = match decode_media(&payload) {
+                Ok(d) => d,
+                Err(_) => {
+                    // Not a video datagram; try audio when this build supports it.
+                    #[cfg(feature = "audio")]
+                    if let Ok(audio) = skreen_proto::media::decode_audio(&payload) {
+                        audio_stats
+                            .frames
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        audio_stats.bytes.fetch_add(
+                            audio.opus.len() as u64,
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                        if let Some((sink, decoder)) = audio_player.as_mut() {
+                            if let Ok(pcm) =
+                                skreen_audio::AudioDecoder::decode(decoder, &audio.opus)
+                            {
+                                sink.push(&pcm);
+                            }
+                        }
+                    }
+                    continue;
+                }
             };
             if datagram.keyframe {
                 keyframes += 1;
@@ -775,6 +809,14 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             "decoded {frames} frames from {datagrams} datagrams ({keyframes} keyframe fragments), {bytes} bytes in {elapsed:?}"
         );
         println!("steady-state {fps:.1} fps");
+        #[cfg(feature = "audio")]
+        println!(
+            "audio datagrams: {} ({} bytes)",
+            audio_stats
+                .frames
+                .load(std::sync::atomic::Ordering::Relaxed),
+            audio_stats.bytes.load(std::sync::atomic::Ordering::Relaxed)
+        );
         Ok(())
     }
     #[cfg(not(all(feature = "quic", feature = "h264")))]

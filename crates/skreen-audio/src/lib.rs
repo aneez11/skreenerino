@@ -110,6 +110,99 @@ pub mod opus_codec {
     }
 }
 
+/// Playback sink: accepts decoded PCM and feeds a cpal output stream.
+#[cfg(feature = "native")]
+pub mod cpal_sink {
+    use super::*;
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    pub struct AudioSink {
+        stream: Option<cpal::Stream>,
+        queue: Arc<Mutex<VecDeque<i16>>>,
+        capacity: usize,
+        dropped: Arc<std::sync::atomic::AtomicU64>,
+    }
+
+    impl AudioSink {
+        pub fn new() -> Result<Self> {
+            let host = cpal::default_host();
+            let device = host
+                .default_output_device()
+                .ok_or_else(|| anyhow::anyhow!("no output device"))?;
+            let config = cpal::StreamConfig {
+                channels: CHANNELS,
+                sample_rate: cpal::SampleRate(SAMPLE_RATE),
+                buffer_size: cpal::BufferSize::Default,
+            };
+            let capacity = (SAMPLE_RATE as usize) * 2; // 2 s of slack
+            let queue = Arc::new(Mutex::new(VecDeque::with_capacity(capacity)));
+            let dropped = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+            let q = queue.clone();
+            let drop_counter = dropped.clone();
+            let stream = device.build_output_stream(
+                &config,
+                move |out: &mut [f32], _| {
+                    let mut q = q.lock().expect("audio queue poisoned");
+                    for slot in out.iter_mut() {
+                        *slot = match q.pop_front() {
+                            Some(sample) => sample as f32 / i16::MAX as f32,
+                            None => 0.0,
+                        };
+                    }
+                    if q.len() > 48_000 {
+                        drop_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                },
+                |err| tracing::error!("audio output error: {err}"),
+                None,
+            )?;
+            stream.play()?;
+
+            Ok(Self {
+                stream: Some(stream),
+                queue,
+                capacity,
+                dropped,
+            })
+        }
+
+        /// Queue decoded PCM. Excess audio is trimmed to bound latency.
+        pub fn push(&self, pcm: &[i16]) {
+            let mut q = self.queue.lock().expect("audio queue poisoned");
+            let free = self.capacity.saturating_sub(q.len());
+            if pcm.len() > free {
+                let skip = pcm.len() - free;
+                self.dropped
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                q.extend(&pcm[skip..]);
+            } else {
+                q.extend(pcm);
+            }
+        }
+
+        pub fn queued_samples(&self) -> usize {
+            self.queue.lock().map(|q| q.len()).unwrap_or(0)
+        }
+
+        pub fn dropped_batches(&self) -> u64 {
+            self.dropped.load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        pub fn stop(&mut self) {
+            self.stream.take();
+        }
+    }
+
+    impl Drop for AudioSink {
+        fn drop(&mut self) {
+            self.stop();
+        }
+    }
+}
+
 #[cfg(feature = "native")]
 pub mod cpal_source {
     use super::*;

@@ -41,7 +41,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 | macOS capture (ScreenCaptureKit) | Scaffolded; returns an explicit "not yet implemented" error |
 | Linux capture (PipeWire/X11) | Backend detection scaffolded; capture not implemented |
 | Hardware encoders | Selection layer reports candidates and falls back to software with an explicit reason; driver bindings not implemented |
-| Audio over the wire | Room `--audio` streams one capture to all viewers; viewer decoder + tests |
+| Audio over the wire | Room `--audio` streams one capture to all viewers; viewer decodes and plays through cpal |
 | NACK retransmission | Implemented end to end over a duplex control stream: viewer detects gaps, presenter resends from a bounded buffer |
 | Adaptive bitrate | Closed loop verified: measured decode_ms (132–175 ms, debug) drove High→Medium→Low; encoder rebuilt per tier |
 | Consent UI | Gate logic exists; no on-screen prompt |
@@ -58,6 +58,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
 
