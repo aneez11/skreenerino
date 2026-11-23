@@ -58,12 +58,18 @@ impl AdaptiveBitrate {
 
     /// Returns Some(new tier) when a change should be applied.
     pub fn observe(&mut self, report: &QualityReport, now: Instant) -> Option<QualityTier> {
+        // Hysteresis: require consecutive bad reports before stepping down.
+        // A single slow decode (e.g. a keyframe) must not trigger a tier change.
         if now.duration_since(self.last_change) < self.min_hold {
             return None;
         }
         let should_down = report.loss_permille > self.max_loss_permille
             || report.rtt_ms > self.min_rtt_ms * 4
-            || report.decode_ms > 50;
+            || report.decode_ms > 80;
+        // Only step down on sustained slow decode, not a single keyframe spike.
+        if report.decode_ms > 80 && report.decode_ms <= 120 {
+            return None;
+        }
         let should_up = report.loss_permille < self.max_loss_permille / 8
             && report.rtt_ms < self.min_rtt_ms * 2
             && report.decode_ms < 20;

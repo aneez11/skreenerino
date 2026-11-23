@@ -22,7 +22,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 | Browser viewer | HTTP page + MJPEG stream verified (200 + JPEG multipart) |
 | Relay/SFU forwarding | `relay` command; role classification tested |
 | Multi-presenter session model | `active_streams`, `presenters`, `stop_presenting` tested |
-| Tile layouts (single/grid/PiP) | layout + hit-test tests |
+| Tile layouts (single/grid/PiP) | layout + hit-test tests; wired into the viewer's grid render |
 | Room coordinator handover | session tests |
 | TOFU pinning, PIN pairing | security tests |
 | Push/pull consent gate | allowlist + remember/deny tests |
@@ -58,6 +58,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
 

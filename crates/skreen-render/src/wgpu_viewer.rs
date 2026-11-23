@@ -12,7 +12,7 @@ use crate::{FrameSize, RgbaFrame};
 
 #[derive(Debug, Clone)]
 pub enum ViewerEvent {
-    Frame(Arc<RgbaFrame>),
+    Frame { key: String, frame: Arc<RgbaFrame> },
     End,
 }
 
@@ -70,7 +70,7 @@ struct GpuState {
     pipeline: wgpu::RenderPipeline,
     bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    texture: Option<(wgpu::Texture, wgpu::BindGroup, FrameSize)>,
+    textures: std::collections::HashMap<String, (wgpu::Texture, wgpu::BindGroup, FrameSize)>,
 }
 
 impl GpuState {
@@ -189,7 +189,7 @@ impl GpuState {
             pipeline,
             bind_group_layout,
             sampler,
-            texture: None,
+            textures: std::collections::HashMap::new(),
         })
     }
 
@@ -202,34 +202,37 @@ impl GpuState {
         self.surface.configure(&self.device, &self.config);
     }
 
-    fn upload(&mut self, frame: &RgbaFrame) {
+    fn upload(&mut self, key: &str, frame: &RgbaFrame) {
         if !frame.is_consistent() {
             tracing::warn!("dropping frame with mismatched buffer size");
             return;
         }
-        if matches!(&self.texture, Some((_, _, size)) if *size == frame.size) {
-            if let Some((texture, _, _)) = &self.texture {
-                self.queue.write_texture(
-                    wgpu::ImageCopyTexture {
-                        texture,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &frame.pixels,
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(frame.size.width * 4),
-                        rows_per_image: Some(frame.size.height),
-                    },
-                    wgpu::Extent3d {
-                        width: frame.size.width,
-                        height: frame.size.height,
-                        depth_or_array_layers: 1,
-                    },
-                );
-                return;
-            }
+        let reusable = matches!(
+            self.textures.get(key),
+            Some((_, _, size)) if *size == frame.size
+        );
+        if reusable {
+            let texture = &self.textures[key].0;
+            self.queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &frame.pixels,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(frame.size.width * 4),
+                    rows_per_image: Some(frame.size.height),
+                },
+                wgpu::Extent3d {
+                    width: frame.size.width,
+                    height: frame.size.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            return;
         }
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -280,7 +283,8 @@ impl GpuState {
                 },
             ],
         });
-        self.texture = Some((texture, bind_group, frame.size));
+        self.textures
+            .insert(key.to_string(), (texture, bind_group, frame.size));
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
@@ -308,10 +312,27 @@ impl GpuState {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            if let Some((_, bind_group, _)) = &self.texture {
-                pass.set_pipeline(&self.pipeline);
-                pass.set_bind_group(0, bind_group, &[]);
-                pass.draw(0..6, 0..1);
+            pass.set_pipeline(&self.pipeline);
+
+            let keys: Vec<String> = {
+                let mut k: Vec<String> = self.textures.keys().cloned().collect();
+                k.sort();
+                k
+            };
+            if !keys.is_empty() {
+                let layout = crate::layout::TileLayout::compute(crate::layout::Layout::Grid, &keys);
+                let (sw, sh) = (self.config.width as f32, self.config.height as f32);
+                for tile in &layout.tiles {
+                    if let Some((_, bind_group, _)) = self.textures.get(&tile.stream) {
+                        let x = (tile.rect.x * sw).round().max(0.0) as u32;
+                        let y = (tile.rect.y * sh).round().max(0.0) as u32;
+                        let w = ((tile.rect.w * sw).floor() as u32).max(1);
+                        let h = ((tile.rect.h * sh).floor() as u32).max(1);
+                        pass.set_viewport(x as f32, y as f32, w as f32, h as f32, 0.0, 1.0);
+                        pass.set_bind_group(0, bind_group, &[]);
+                        pass.draw(0..6, 0..1);
+                    }
+                }
             }
         }
         self.queue.submit(Some(encoder.finish()));
@@ -324,7 +345,7 @@ struct App {
     window: Option<Arc<Window>>,
     gpu: Option<GpuState>,
     frames: Receiver<Arc<RgbaFrame>>,
-    pending: Option<Arc<RgbaFrame>>,
+    pending: Option<(String, Arc<RgbaFrame>)>,
     title: String,
 }
 
@@ -351,8 +372,8 @@ impl ApplicationHandler<ViewerEvent> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ViewerEvent) {
         match event {
-            ViewerEvent::Frame(frame) => {
-                self.pending = Some(frame);
+            ViewerEvent::Frame { key, frame } => {
+                self.pending = Some((key, frame));
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
@@ -377,8 +398,8 @@ impl ApplicationHandler<ViewerEvent> for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let (Some(gpu), Some(frame)) = (self.gpu.as_mut(), self.pending.take()) {
-                    gpu.upload(&frame);
+                if let (Some(gpu), Some((key, frame))) = (self.gpu.as_mut(), self.pending.take()) {
+                    gpu.upload(&key, &frame);
                 }
                 if let Some(gpu) = &mut self.gpu {
                     match gpu.render() {
@@ -425,7 +446,13 @@ pub fn run_blocking(title: String, frames: Receiver<Arc<RgbaFrame>>) -> Result<(
 /// Sender helper used by transport tasks.
 pub fn forward_frames(rx: Receiver<Arc<RgbaFrame>>, proxy: ViewerProxy) {
     while let Ok(frame) = rx.recv() {
-        if proxy.send_event(ViewerEvent::Frame(frame)).is_err() {
+        if proxy
+            .send_event(ViewerEvent::Frame {
+                key: "main".into(),
+                frame,
+            })
+            .is_err()
+        {
             break;
         }
     }
