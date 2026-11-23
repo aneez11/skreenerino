@@ -1,4 +1,4 @@
-﻿# Implementation Status
+# Implementation Status
 
 Last updated: all five roadmap phases have working, tested implementations of the
 platform-neutral and Windows-verifiable parts. Platform-exclusive pieces (macOS
@@ -58,17 +58,26 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+## GUI (docs/gui-plan.md, `--features gui`)
 
+Verified on this machine with `skreenerino-app app --join <host:port>`: 188 frames
+decoded at 13.9 fps, one live stream rendered in the Meeting view.
 
+| Milestone | State |
+|---|---|
+| M0 egui shell over video | Done. egui 0.31.1 matching wgpu 24 / winit 0.30; video drawn as egui textures |
+| M1 `skreen-app` extraction | Done. Presenter, viewer, discovery, NACK, audio and settings live in the library; CLI runs on it |
+| M2 Home screen | Done. Sidebar nav, Share/Join/Pair actions, nearby-device list with Join buttons, manual `host:port`, recent rooms |
+| M3 Meeting view | Done. Video grid, name chips, participants rail with role badges, circular control bar with red Leave, status strip |
+| M4 Windows 11 look | Done. Mica backdrop, rounded corners, immersive dark mode, Segoe UI Variable, Fluent tokens, procedural icons |
+| M5 Dialogs | Share picker, pair-device code, stop-sharing confirmation, Settings and About pages, persisted settings |
 
+Threading follows the plan: the UI thread never blocks, frames cross a bounded
+newest-wins channel, and commands reach tokio through a bridge thread (a blocking
+`recv()` inside `block_on` starved the session tasks and was fixed during M3).
 
+Not implemented from the mockup: the tray icon and menu, the "view request"
+consent dialog (the consent gate exists in `skreen-security` but has no UI yet),
+and a multi-monitor thumbnail capture (the picker shows placeholder thumbnails).
 
-
-
-
-
-
-
-
-
-
+Tests: `cargo test --workspace` -> 72 passing.

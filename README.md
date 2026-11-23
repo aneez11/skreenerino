@@ -1,4 +1,4 @@
-﻿# Skreenerino
+# Skreenerino
 
 LAN screen projection in Rust. Capture a screen on one machine and project it
 live to one or many devices on the same network.
@@ -9,6 +9,10 @@ for exactly what works today.
 ## Quick start
 
 ```powershell
+# desktop app (Windows 11 style GUI)
+skreenerino app                       # home screen: discover, join, share
+skreenerino app --join classroom      # jump straight into a room
+
 # terminal 1: share this machine's screen
 skreenerino serve --bind 0.0.0.0:7654 --fps 30 --bitrate 4000000 --name desk --room classroom --multi
 #   add --scale 0.5 for half resolution, --audio to also send the microphone
@@ -65,7 +69,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe build --release -p skreenerino
 ```
 
 The audio feature additionally needs `CMAKE_POLICY_VERSION_MINIMUM=3.5` for the
-bundled libopus build.
+bundled libopus build. The GUI is built with `--features gui`.
 
 ## Status
 
