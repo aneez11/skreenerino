@@ -58,6 +58,76 @@ pub mod xcap_backend {
     }
 }
 
+/// macOS ScreenCaptureKit backend (requires Screen Recording permission).
+#[cfg(target_os = "macos")]
+pub mod macos_backend {
+    use super::*;
+    use std::time::Instant;
+
+    /// Placeholder until the `screencapturekit` bindings are wired up.
+    pub struct ScreenCaptureKitCapturer {
+        started: Instant,
+    }
+
+    impl ScreenCaptureKitCapturer {
+        pub fn primary() -> Result<Self> {
+            anyhow::bail!(
+                "macOS capture backend not yet implemented: add the `screencapturekit` dependency \
+                 and request Screen Recording permission"
+            )
+        }
+    }
+
+    impl ScreenCapturer for ScreenCaptureKitCapturer {
+        fn start(&mut self) -> Result<()> { self.started = Instant::now(); Ok(()) }
+        fn next_frame(&mut self) -> Result<Option<CapturedFrame>> {
+            anyhow::bail!("macOS capture backend not yet implemented")
+        }
+        fn stop(&mut self) -> Result<()> { Ok(()) }
+    }
+}
+
+/// Linux backend: PipeWire portal on Wayland, X11 capture otherwise.
+#[cfg(target_os = "linux")]
+pub mod linux_backend {
+    use super::*;
+
+    pub struct LinuxCapturer {
+        pub backend: &'static str,
+    }
+
+    impl LinuxCapturer {
+        pub fn detect() -> Result<Self> {
+            let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
+            let backend = if session.eq_ignore_ascii_case("wayland") { "pipewire" } else { "x11" };
+            Ok(Self { backend })
+        }
+    }
+
+    impl ScreenCapturer for LinuxCapturer {
+        fn start(&mut self) -> Result<()> {
+            anyhow::bail!(
+                "linux capture backend ({}) not yet implemented: wire up xdg-desktop-portal or XShm",
+                self.backend
+            )
+        }
+        fn next_frame(&mut self) -> Result<Option<CapturedFrame>> { Ok(None) }
+        fn stop(&mut self) -> Result<()> { Ok(()) }
+    }
+}
+
+/// Platform-appropriate capturer, or a clear error on unsupported targets.
+pub fn default_capturer() -> Result<Box<dyn ScreenCapturer>> {
+    #[cfg(feature = "xcap")]
+    {
+        Ok(Box::new(xcap_backend::XcapCapturer::primary()?))
+    }
+    #[cfg(not(feature = "xcap"))]
+    {
+        anyhow::bail!("capture backend not enabled: build with the `xcap` feature")
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct NullCapturer;
 
@@ -66,3 +136,4 @@ impl ScreenCapturer for NullCapturer {
     fn next_frame(&mut self) -> Result<Option<CapturedFrame>> { Ok(None) }
     fn stop(&mut self) -> Result<()> { Ok(()) }
 }
+

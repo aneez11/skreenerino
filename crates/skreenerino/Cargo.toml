@@ -33,6 +33,8 @@ skreen-session.workspace = true
 skreen-security.workspace = true
 skreen-render.workspace = true
 skreen-audio.workspace = true
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+
 
 
 

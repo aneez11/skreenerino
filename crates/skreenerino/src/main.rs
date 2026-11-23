@@ -1,4 +1,5 @@
-﻿mod latency;
+﻿mod gateway;
+mod latency;
 mod relay;
 mod room;
 mod spike;
@@ -23,6 +24,13 @@ enum Commands {
         bitrate: u32,
         #[arg(long, default_value_t = 30)]
         fps: u32,
+    },
+    /// Serve a browser-viewable page for a stream on this host
+    WebView {
+        #[arg(long, default_value = "0.0.0.0:7663")]
+        bind: SocketAddr,
+        #[arg(long)]
+        stream: Option<String>,
     },
     /// Run relay/SFU endpoint: forwards one presenter to many viewers
     Relay {
@@ -100,6 +108,7 @@ async fn main() -> Result<()> {
         Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
         Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
+        Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Relay { bind } => relay::run_relay(bind).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
         Commands::AudioTest { frames } => audio_test(frames),
@@ -461,6 +470,87 @@ fn audio_test(frames: u32) -> Result<()> {
         anyhow::bail!("audio-test requires the `audio` feature (cpal + opus)")
     }
 }
+async fn web_view(bind: SocketAddr, stream: Option<String>) -> Result<()> {
+    #[cfg(all(feature = "quic", feature = "h264"))]
+    {
+        use skreen_codec::{h264::OpenH264Decoder, Decoder};
+        use skreen_proto::fragment::Reassembler;
+        use skreen_proto::media::decode_media;
+        use skreen_transport::quic;
+        use std::sync::{Arc, Mutex};
+
+        let target = match stream {
+            Some(s) => s,
+            None => anyhow::bail!("web-view needs `--stream host:port` (or a room)"),
+        };
+        let addr: SocketAddr = if let Some(peer) = skreen_discovery::parse_manual_endpoint(&target) {
+            format!("{}:{}", peer.host, peer.port).parse()?
+        } else {
+            let peers = browse_peers()?;
+            let peer = peers
+                .into_iter()
+                .find(|p| p.device.0 == target || p.room.as_deref() == Some(target.as_str()))
+                .ok_or_else(|| anyhow::anyhow!("no stream named `{target}`"))?;
+            format!("{}:{}", peer.host, peer.port).parse()?
+        };
+
+        let jpeg: gateway::SharedJpeg = Arc::new(Mutex::new(None));
+        let shared = jpeg.clone();
+        tokio::spawn(async move {
+            let conn = match quic::connect(addr).await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("web gateway connect failed: {e}");
+                    return;
+                }
+            };
+            let mut reassembler = Reassembler::default();
+            let mut decoder = match OpenH264Decoder::new() {
+                Ok(d) => d,
+                Err(e) => {
+                    eprintln!("decoder init failed: {e}");
+                    return;
+                }
+            };
+            loop {
+                let Ok(payload) = quic::recv_datagram(&conn).await else { break };
+                let Ok(datagram) = decode_media(&payload) else { continue };
+                let Some(frame_bytes) = reassembler.push(skreen_proto::fragment::FrameFragment {
+                    stream: datagram.stream,
+                    sequence: datagram.sequence,
+                    timestamp_us: datagram.timestamp_us,
+                    keyframe: datagram.keyframe,
+                    fragment_index: datagram.fragment_index,
+                    fragment_count: datagram.fragment_count,
+                    payload: datagram.payload,
+                }) else {
+                    continue;
+                };
+                match decoder.decode(&frame_bytes) {
+                    Ok(Some(frame)) => {
+                        if let Ok(encoded) =
+                            gateway::rgba_to_jpeg(&frame.rgba, frame.width, frame.height, 70)
+                        {
+                            if let Ok(mut slot) = shared.lock() {
+                                *slot = Some(encoded);
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => tracing::warn!("gateway decode error: {e}"),
+                }
+            }
+        });
+
+        let stats = std::sync::Arc::new(gateway::GatewayStats::default());
+        gateway::run(bind, jpeg, stats).await
+    }
+    #[cfg(not(all(feature = "quic", feature = "h264")))]
+    {
+        let _ = (bind, stream);
+        anyhow::bail!("web-view requires the quic and h264 features")
+    }
+}
 async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {
@@ -576,6 +666,8 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
 
 
 

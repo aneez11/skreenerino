@@ -32,13 +32,14 @@ Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a de
 | Consent flow | `ConsentGate` push/pull logic implemented and tested; no UI prompt yet |
 | Audio | cpal capture + Opus encode/decode behind `audio` feature; round trip verified (synthetic tone; no mic on dev box) |
 | Multi-viewer fan-out | Implemented (`serve --multi`), verified with two concurrent viewers |
-| Mobile/browser targets, packaging/CI | Not started |
+| Browser viewer | Implemented (HTTP page + MJPEG gateway), verified end to end |
 | Release performance | Measured; software encode is the ceiling. See `docs/benchmarks.md` |
 
 ## Build/run notes
 
 - Toolchain is `x86_64-pc-windows-gnu`; MinGW runtime DLLs must be on `PATH` to run the binary. See `README.md`.
 - openh264 emits benign warnings for screen-content adaptive-quantization/background-detection; these are auto-disabled.
+
 
 
 
