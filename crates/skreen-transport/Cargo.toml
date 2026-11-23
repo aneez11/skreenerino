@@ -7,7 +7,7 @@ authors.workspace = true
 
 [features]
 default = []
-quic = ["dep:quinn"]
+quic = ["dep:quinn", "dep:rcgen", "dep:rustls", "dep:rustls-pemfile"]
 
 [dependencies]
 anyhow.workspace = true
@@ -18,3 +18,7 @@ tracing.workspace = true
 serde.workspace = true
 skreen-proto.workspace = true
 quinn = { workspace = true, optional = true }
+rcgen = { version = "0.14", optional = true }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+rustls-pemfile = { version = "2", optional = true }
+

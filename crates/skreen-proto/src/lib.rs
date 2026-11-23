@@ -1,6 +1,7 @@
 ﻿use serde::{Deserialize, Serialize};
 
 pub mod fragment;
+pub mod media;
 
 pub const PROTOCOL_VERSION: u16 = 1;
 
@@ -72,4 +73,5 @@ pub fn encode_control(msg: &ControlMessage) -> Result<Vec<u8>, ProtoError> {
 pub fn decode_control(bytes: &[u8]) -> Result<ControlMessage, ProtoError> {
     Ok(postcard::from_bytes(bytes)?)
 }
+
 

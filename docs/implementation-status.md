@@ -1,41 +1,41 @@
 ﻿# Implementation Status
 
-Baseline: workspace scaffolding, platform-neutral logic, and tests are in place and green.
+Last updated: Phase 0 spike + Phase 1 transport pipeline working end to end on Windows.
 
-## Done
+## Verified working (tested on this machine)
 
-| Area | Crate | Evidence |
-|---|---|---|
-| Control messages, capabilities, roles | skreen-proto | `ControlMessage`, `Capabilities` |
-| Fragmenter/reassembler | skreen-proto | `fragment.rs`, round-trip test |
-| Room membership + coordinator handover | skreen-session | 2 tests passing |
-| Presenter/viewer/transfer (baton) | skreen-session | `transfer_presenter` test |
-| Jitter buffer | skreen-transport | 3 tests passing |
-| TOFU device pinning | skreen-security | `verify_or_pin` test |
-| PIN pairing + constant-time compare | skreen-security | 2 tests passing |
-| Discovery trait + manual `host:port` fallback | skreen-discovery | parse test |
-| MTU-safe payload sizing | skreen-transport | `mtu_safe_payload` |
-| CLI skeleton (`send`, `join`, `discover`) | skreenerino | `--help` |
-
-Tests: `cargo test --workspace` passes (10 tests).
-
-## Blocked / pending
-
-| Item | Blocker |
+| Capability | Evidence |
 |---|---|
-| Screen capture backends | Needs Windows.Graphics.Capture/DXGI, ScreenCaptureKit, PipeWire portals; OS permissions |
-| openh264 + HW encoders | Native SDK/binary deps; licensing decision for H.264 |
-| Live QUIC transport | Needs end-to-end socket/permission validation on target LANs |
-| wgpu viewer | Needs a display/GPU context; currently feature-gated stub |
-| Audio (cpal+opus) | Feature-gated stub; phase 2 |
-| Phase 3 SFU/relay, simulcast | Depends on live transport |
-| Phase 4 mobile/browser | Toolchains absent (Android NDK, Xcode, browser gateway) |
-| Phase 5 packaging/CI | Needs release signing, notarization, CI runners |
+| Workspace builds and tests pass | `cargo test --workspace` (10+ tests) |
+| Screen capture (Windows, xcap) | `skreenerino spike` wrote 20 H.264 frames |
+| H.264 encode (openh264, screen-content tune) | openh264 encoder in `skreen-codec` |
+| H.264 decode | `watch` decoded 60 frames from the stream |
+| Frame fragmentation + reassembly | `skreen-proto::fragment` tests + live stream |
+| Media datagram framing | `skreen-proto::media` round-trip test |
+| QUIC transport with ALPN + self-signed certs | `serve`/`watch` handshake over loopback |
+| Live end-to-end stream | `serve` → `watch`: 60 frames decoded, 350 datagrams |
+| Room state machine, coordinator handover | `skreen-session` tests |
+| TOFU pinning, PIN pairing | `skreen-security` tests |
+| Jitter buffer | `skreen-transport` tests |
+| CLI | `send`, `join`, `discover`, `spike`, `serve`, `watch` |
 
-## Reproduce
+Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a debug build with per-frame software H.264 encoding of a full desktop; it is correctness evidence, not a latency benchmark.
 
-```powershell
-$env:CARGO_HOME=".cargo-home"
-$env:PATH="$PWD\.tools\mingw\mingw64\bin;$env:PATH"
-$env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
-```
+## Known gaps / next work
+
+| Item | Status |
+|---|---|
+| `wgpu` viewer window | Stub; `watch` decodes but discards pixels. Needs a real surface. |
+| `send` to a named peer | Requires mDNS browse loop; only `host:port` works today |
+| mDNS advertise/browse | Trait + manual endpoint only; `mdns-sd` not wired into a run loop |
+| Adaptive bitrate, NACK, FEC | Not implemented |
+| Consent prompts / per-window sharing | Types exist; no UI enforcement |
+| Audio (cpal + opus) | Feature-gated stub |
+| Multi-presenter tiling, SFU/relay | Not started; depends on transport work |
+| Mobile/browser targets, packaging/CI | Not started |
+| Release performance tuning | Debug build only; needs `--release` benchmark and HW encoder path |
+
+## Build/run notes
+
+- Toolchain is `x86_64-pc-windows-gnu`; MinGW runtime DLLs must be on `PATH` to run the binary. See `README.md`.
+- openh264 emits benign warnings for screen-content adaptive-quantization/background-detection; these are auto-disabled.
