@@ -565,7 +565,7 @@ async fn web_view(bind: SocketAddr, stream: Option<String>) -> Result<()> {
         let jpeg: gateway::SharedJpeg = Arc::new(Mutex::new(None));
         let shared = jpeg.clone();
         tokio::spawn(async move {
-            let conn = match quic::connect(addr).await {
+            let conn = match connect_with_tofu(addr).await {
                 Ok(c) => c,
                 Err(e) => {
                     eprintln!("web gateway connect failed: {e}");
@@ -706,7 +706,7 @@ async fn wall(streams: Vec<String>, max_frames: u32) -> Result<()> {
             let total_frames = total_frames.clone();
             let key = target.clone();
             tokio::spawn(async move {
-                let conn = match quic::connect(addr).await {
+                let conn = match connect_with_tofu(addr).await {
                     Ok(c) => c,
                     Err(e) => {
                         eprintln!("wall: {key} connect failed: {e}");
@@ -777,7 +777,6 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
         use skreen_proto::media::decode_media;
         use skreen_transport::quic;
         let conn = connect_with_tofu(addr).await?;
-        let conn = quic::connect(addr).await?;
         println!("connected to {}", conn.remote_address());
         let mut reassembler = Reassembler::default();
         let mut decoder = OpenH264Decoder::new()?;
