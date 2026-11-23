@@ -1,4 +1,6 @@
-﻿use serde::{Deserialize, Serialize};
+﻿pub mod consent;
+
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -157,3 +159,5 @@ mod tests {
         assert!(pin.as_str().chars().all(|c| c.is_ascii_digit()));
     }
 }
+
+

@@ -28,15 +28,16 @@ Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a de
 | `wgpu` viewer window | Implemented: `join`/`watch` open a live wgpu window |
 | `send` to a named peer | Works: mDNS resolve by device or room name, plus `host:port` fallback |
 | mDNS advertise/browse | Implemented with `mdns-sd`; verified by `discover` and `join` |
-| Adaptive bitrate, NACK, FEC | Not implemented |
-| Consent prompts / per-window sharing | Types exist; no UI enforcement |
+| Adaptive bitrate | Tier selector implemented and tested; not yet driven by live reports |
+| Consent flow | `ConsentGate` push/pull logic implemented and tested; no UI prompt yet |
 | Audio (cpal + opus) | Feature-gated stub |
-| Multi-presenter tiling, SFU/relay | Not started; depends on transport work |
+| Multi-viewer fan-out | Implemented (`serve --multi`), verified with two concurrent viewers |
 | Mobile/browser targets, packaging/CI | Not started |
-| Release performance tuning | Debug build only; needs `--release` benchmark and HW encoder path |
+| Release performance | Measured; software encode is the ceiling. See `docs/benchmarks.md` |
 
 ## Build/run notes
 
 - Toolchain is `x86_64-pc-windows-gnu`; MinGW runtime DLLs must be on `PATH` to run the binary. See `README.md`.
 - openh264 emits benign warnings for screen-content adaptive-quantization/background-detection; these are auto-disabled.
+
 

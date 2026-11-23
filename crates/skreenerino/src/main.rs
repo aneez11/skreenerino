@@ -1,4 +1,5 @@
-﻿mod room;
+﻿mod latency;
+mod room;
 mod spike;
 
 use anyhow::Result;
@@ -57,6 +58,13 @@ enum Commands {
         #[arg(long, default_value_t = false)]
         multi: bool,
     },
+    /// Measure capture -> encode -> decode latency with an embedded frame token
+    Latency {
+        #[arg(long, default_value_t = 60)]
+        frames: u32,
+        #[arg(long, default_value_t = 4_000_000)]
+        bitrate: u32,
+    },
     /// Receive a stream over QUIC, decode it, and report statistics
     Watch {
         addr: SocketAddr,
@@ -81,6 +89,7 @@ async fn main() -> Result<()> {
         Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
         Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
+        Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
     }
 }
 
@@ -485,6 +494,8 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
 
 
 
