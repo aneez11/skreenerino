@@ -297,6 +297,46 @@ fn local_display_host() -> String {
         .unwrap_or_else(|_| "127.0.0.1".into())
 }
 
+#[cfg(feature = "viewer")]
+mod viewer {
+    use anyhow::Result;
+    use skreen_render::RgbaFrame;
+    use std::sync::Arc;
+
+    pub struct ViewerHandle {
+        tx: std::sync::mpsc::SyncSender<Arc<RgbaFrame>>,
+        thread: Option<std::thread::JoinHandle<Result<()>>>,
+    }
+
+    impl ViewerHandle {
+        pub fn push(&self, frame: RgbaFrame) {
+            let _ = self.tx.try_send(Arc::new(frame));
+        }
+    }
+
+    impl Drop for ViewerHandle {
+        fn drop(&mut self) {
+            drop(self.tx.clone());
+            if let Some(handle) = self.thread.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    pub fn start(title: &str) -> Result<Option<ViewerHandle>> {
+        let path = std::env::current_exe().unwrap_or_default();
+        if std::env::var("SKREENERINO_NO_VIEWER").is_ok() || path.to_string_lossy().contains("deps") {
+            tracing::warn!("viewer disabled");
+            return Ok(None);
+        }
+        let (tx, rx) = skreen_render::wgpu_viewer::frame_channel(4);
+        let title = title.to_string();
+        let thread = std::thread::Builder::new()
+            .name("skreenerino-viewer".into())
+            .spawn(move || skreen_render::wgpu_viewer::run_blocking(title, rx))?;
+        Ok(Some(ViewerHandle { tx, thread: Some(thread) }))
+    }
+}
 async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {
@@ -309,6 +349,9 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
         println!("connected to {}", conn.remote_address());
         let mut reassembler = Reassembler::default();
         let mut decoder = OpenH264Decoder::new()?;
+
+        #[cfg(feature = "viewer")]
+        let _viewer = viewer::start("skreenerino viewer")?;
 
         let mut datagrams = 0u64;
         let mut frames = 0u32;
@@ -350,16 +393,26 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             };
 
             match decoder.decode(&frame_bytes) {
-                Ok(Some(rgba)) => {
+                Ok(Some(frame)) => {
                     let now = std::time::Instant::now();
                     if first_frame_at.is_none() {
                         first_frame_at = Some(now);
                     }
                     last_frame_at = Some(now);
                     frames += 1;
-                    let expected = size_check.get_or_insert_with(|| (0, 0));
-                    if *expected == (0, 0) {
-                        *expected = (rgba.len() / 4, 1);
+                    let size = size_check.get_or_insert((frame.width as usize, frame.height as usize));
+                    if *size == (0, 0) {
+                        *size = (frame.width as usize, frame.height as usize);
+                    }
+                    #[cfg(feature = "viewer")]
+                    if let Some(ref viewer) = _viewer {
+                        viewer.push(skreen_render::RgbaFrame {
+                            size: skreen_render::FrameSize {
+                                width: frame.width,
+                                height: frame.height,
+                            },
+                            pixels: frame.rgba,
+                        });
                     }
                 }
                 Ok(None) => {}
@@ -399,6 +452,10 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
+
+
 
 
 

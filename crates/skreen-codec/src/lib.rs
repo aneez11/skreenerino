@@ -13,8 +13,15 @@ pub trait Encoder {
     fn force_keyframe(&mut self);
 }
 
+#[derive(Debug, Clone)]
+pub struct DecodedFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 pub trait Decoder {
-    fn decode(&mut self, packet: &[u8]) -> Result<Option<Vec<u8>>>;
+    fn decode(&mut self, packet: &[u8]) -> Result<Option<DecodedFrame>>;
 }
 
 #[derive(Debug, Default)]
@@ -92,12 +99,13 @@ pub mod h264 {
     }
 
     impl Decoder for OpenH264Decoder {
-        fn decode(&mut self, packet: &[u8]) -> Result<Option<Vec<u8>>> {
+        fn decode(&mut self, packet: &[u8]) -> Result<Option<DecodedFrame>> {
             let Some(decoded) = self.decoder.decode(packet)? else { return Ok(None); };
             let (w, h) = openh264::formats::YUVSource::dimensions(&decoded);
             let mut rgba = vec![0u8; w * h * 4];
             decoded.write_rgba8(&mut rgba);
-            Ok(Some(rgba))
+            Ok(Some(DecodedFrame { width: w as u32, height: h as u32, rgba }))
         }
     }
 }
+

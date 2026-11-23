@@ -7,7 +7,7 @@ authors.workspace = true
 
 [features]
 default = []
-wgpu = ["dep:wgpu", "dep:winit"]
+wgpu = ["dep:wgpu", "dep:winit", "dep:pollster"]
 
 [dependencies]
 anyhow.workspace = true
@@ -15,3 +15,5 @@ thiserror.workspace = true
 tracing.workspace = true
 wgpu = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
+pollster = { version = "0.4", optional = true }
+

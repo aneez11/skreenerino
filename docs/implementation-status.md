@@ -1,6 +1,6 @@
 ﻿# Implementation Status
 
-Last updated: Phase 0 spike + Phase 1 transport pipeline working end to end on Windows.
+Last updated: Phases 0 and 1 substantially working on Windows (capture, encode, QUIC, decode, mDNS, live viewer).
 
 ## Verified working (tested on this machine)
 
@@ -25,9 +25,9 @@ Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a de
 
 | Item | Status |
 |---|---|
-| `wgpu` viewer window | Stub; `watch` decodes but discards pixels. Needs a real surface. |
-| `send` to a named peer | Requires mDNS browse loop; only `host:port` works today |
-| mDNS advertise/browse | Trait + manual endpoint only; `mdns-sd` not wired into a run loop |
+| `wgpu` viewer window | Implemented: `join`/`watch` open a live wgpu window |
+| `send` to a named peer | Works: mDNS resolve by device or room name, plus `host:port` fallback |
+| mDNS advertise/browse | Implemented with `mdns-sd`; verified by `discover` and `join` |
 | Adaptive bitrate, NACK, FEC | Not implemented |
 | Consent prompts / per-window sharing | Types exist; no UI enforcement |
 | Audio (cpal + opus) | Feature-gated stub |
@@ -39,3 +39,4 @@ Loopback measurement: 60 frames in 28.3 s ≈ 2.1 fps steady state. This is a de
 
 - Toolchain is `x86_64-pc-windows-gnu`; MinGW runtime DLLs must be on `PATH` to run the binary. See `README.md`.
 - openh264 emits benign warnings for screen-content adaptive-quantization/background-detection; these are auto-disabled.
+

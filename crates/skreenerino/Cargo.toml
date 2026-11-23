@@ -6,16 +6,18 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = ["xcap", "h264", "quic", "mdns"]
+default = ["xcap", "h264", "quic", "mdns", "viewer"]
 xcap = ["skreen-capture/xcap"]
 h264 = ["skreen-codec/h264"]
 quic = ["skreen-transport/quic", "dep:quinn", "dep:rustls"]
 mdns = ["skreen-discovery/mdns"]
+viewer = ["skreen-render/wgpu", "dep:pollster"]
 
 [dependencies]
 anyhow.workspace = true
 quinn = { workspace = true, optional = true }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
+pollster = { workspace = true, optional = true }
 clap = { version = "4", features = ["derive"] }
 tokio.workspace = true
 tracing.workspace = true
@@ -30,6 +32,7 @@ skreen-session.workspace = true
 skreen-security.workspace = true
 skreen-render.workspace = true
 skreen-audio.workspace = true
+
 
 
 
