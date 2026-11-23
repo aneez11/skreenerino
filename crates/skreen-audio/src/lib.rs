@@ -34,6 +34,16 @@ impl AudioSource for NullAudioSource {
     fn stop(&mut self) -> Result<()> { Ok(()) }
 }
 
+/// Whether the platform exposes a default input device at all.
+#[cfg(feature = "native")]
+pub fn has_input_device() -> bool {
+    use cpal::traits::HostTrait;
+    cpal::default_host().default_input_device().is_some()
+}
+
+#[cfg(not(feature = "native"))]
+pub fn has_input_device() -> bool { false }
+
 #[cfg(feature = "native")]
 pub mod opus_codec {
     use super::*;
@@ -178,5 +188,6 @@ mod tests {
         assert_eq!(FRAME_SAMPLES, (SAMPLE_RATE as usize / 1000) * 20);
     }
 }
+
 
 

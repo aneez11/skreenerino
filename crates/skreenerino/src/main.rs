@@ -80,6 +80,9 @@ enum Commands {
         /// Keep accepting viewers until Ctrl-C instead of exiting after one
         #[arg(long, default_value_t = false)]
         multi: bool,
+        /// Also stream microphone audio (requires the `audio` feature)
+        #[arg(long, default_value_t = false)]
+        audio: bool,
     },
     /// Measure capture -> encode -> decode latency with an embedded frame token
     Latency {
@@ -115,7 +118,7 @@ async fn main() -> Result<()> {
         Commands::Join { room, frames } => join(&room, frames).await,
         Commands::Discover => discover().await,
         Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
-        Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
+        Commands::Serve { bind, bitrate, fps, name, room, multi, audio } => serve(bind, bitrate, fps, name, room, multi, audio).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
@@ -282,6 +285,7 @@ async fn serve(
     name: Option<String>,
     room: Option<String>,
     multi: bool,
+    room_audio: bool,
 ) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "xcap", feature = "h264"))]
     {
@@ -317,6 +321,7 @@ async fn serve(
                 bitrate,
                 fps,
                 name: name.clone().unwrap_or_else(default_device_name),
+                audio: room_audio,
             };
             let shared = std::sync::Arc::new(room::RoomShared::new());
             let stop = async {
@@ -347,7 +352,7 @@ async fn serve(
     }
     #[cfg(not(all(feature = "quic", feature = "xcap", feature = "h264")))]
     {
-        let _ = (bind, bitrate, fps, name, room, multi);
+        let _ = (bind, bitrate, fps, name, room, multi, room_audio);
         anyhow::bail!("serve requires the quic, xcap and h264 features")
     }
 }
@@ -715,6 +720,7 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
 
 
 

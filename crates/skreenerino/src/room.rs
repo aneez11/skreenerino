@@ -20,6 +20,7 @@ pub struct RoomConfig {
     pub bitrate: u32,
     pub fps: u32,
     pub name: String,
+    pub audio: bool,
 }
 
 #[derive(Default)]
@@ -76,6 +77,10 @@ where
     S: std::future::Future<Output = ()>,
 {
     let (packet_tx, _) = broadcast::channel::<Arc<EncodedPacket>>(32);
+    #[cfg(feature = "audio")]
+    let audio_tx = broadcast::channel::<Arc<Vec<u8>>>(32).0;
+
+    let wants_audio = cfg.audio;
 
     let encoder = {
         let tx = packet_tx.clone();
@@ -84,6 +89,26 @@ where
             .name("skreenerino-encode".into())
             .spawn(move || encode_thread(tx, cfg, shared))
     }?;
+
+    #[cfg(feature = "audio")]
+    let audio_capture = if wants_audio {
+        if skreen_audio::has_input_device() {
+            let tx = audio_tx.clone();
+            let stop = shared.stop.clone();
+            Some(
+                std::thread::Builder::new()
+                    .name("skreenerino-mic".into())
+                    .spawn(move || crate::audio_stream::capture_into_broadcast(tx, stop))?,
+            )
+        } else {
+            println!("--audio requested but no input device is available; streaming video only");
+            None
+        }
+    } else {
+        None
+    };
+    #[cfg(feature = "audio")]
+    let _ = &audio_tx;
 
     let accept = {
         let shared = shared.clone();
@@ -96,11 +121,44 @@ where
                         shared.stats.viewers.fetch_add(1, Ordering::Relaxed);
                         shared.request_keyframe();
                         let rx = packet_tx.subscribe();
+                        #[cfg(feature = "audio")]
+                        let audio_rx = audio_tx.subscribe();
                         let shared = shared.clone();
                         tokio::spawn(async move {
-                            if let Err(e) = viewer_task(conn.clone(), rx, shared.clone()).await {
+                            #[cfg(feature = "audio")]
+                            let audio_stop = std::sync::Arc::new(AtomicBool::new(false));
+                            #[cfg(feature = "audio")]
+                            let audio_handle = crate::audio_stream::spawn_sender(
+                                conn.clone(),
+                                "mic".into(),
+                                std::sync::Arc::new(crate::audio_stream::AudioStats::default()),
+                                audio_stop.clone(),
+                            )
+                            .ok()
+                            .flatten();
+
+                            #[cfg(feature = "audio")]
+                            let result = viewer_task_with_audio(
+                                conn.clone(),
+                                rx,
+                                audio_rx,
+                                shared.clone(),
+                            )
+                            .await;
+                            #[cfg(not(feature = "audio"))]
+                            let result = viewer_task(conn.clone(), rx, shared.clone()).await;
+                            if let Err(e) = result {
                                 tracing::info!("viewer {} left: {e}", conn.remote_address());
                             }
+
+                            #[cfg(feature = "audio")]
+                            {
+                                audio_stop.store(true, Ordering::Relaxed);
+                                if let Some(handle) = audio_handle {
+                                    let _ = handle.join();
+                                }
+                            }
+
                             shared.stats.viewers.fetch_sub(1, Ordering::Relaxed);
                             conn.close(0u32.into(), b"bye");
                         });
@@ -124,6 +182,10 @@ where
 
     shared.stop.store(true, Ordering::Relaxed);
     let _ = tokio::task::spawn_blocking(move || encoder.join()).await;
+    #[cfg(feature = "audio")]
+    if let Some(handle) = audio_capture {
+        let _ = tokio::task::spawn_blocking(move || handle.join()).await;
+    }
     server.close();
     Ok(())
 }
@@ -241,6 +303,24 @@ async fn viewer_task(
     }
 }
 
+/// Viewer task that also forwards broadcast audio datagrams.
+#[cfg(feature = "audio")]
+async fn viewer_task_with_audio(
+    conn: quinn::Connection,
+    rx: broadcast::Receiver<Arc<EncodedPacket>>,
+    mut audio_rx: broadcast::Receiver<Arc<Vec<u8>>>,
+    shared: Arc<RoomShared>,
+) -> Result<()> {
+    let conn_for_audio = conn.clone();
+    tokio::spawn(async move {
+        while let Ok(packet) = audio_rx.recv().await {
+            if conn_for_audio.send_datagram(Bytes::from(packet.as_ref().clone())).is_err() {
+                break;
+            }
+        }
+    });
+    viewer_task(conn, rx, shared).await
+}
 /// Blocking capture/encode loop. Runs on a dedicated thread so the async
 /// QUIC driver is never starved by software H.264 encoding.
 fn encode_thread(
@@ -319,6 +399,13 @@ fn encode_thread(
     tracing::info!("encoder thread stopped");
     Ok(())
 }
+
+
+
+
+
+
+
 
 
 

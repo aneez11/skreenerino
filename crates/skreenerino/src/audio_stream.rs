@@ -59,6 +59,41 @@ pub fn spawn_sender(
     Ok(Some(handle))
 }
 
+/// Capture once and publish encoded audio datagrams to every viewer.
+/// Returns immediately if no input device is available.
+pub fn capture_into_broadcast(
+    tx: tokio::sync::broadcast::Sender<Arc<Vec<u8>>>,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+) -> Result<()> {
+    let mut source = match CpalSource::new() {
+        Ok(source) => source,
+        Err(e) => {
+            tracing::warn!("audio disabled: {e}");
+            return Ok(());
+        }
+    };
+    source.start()?;
+    let mut encoder = OpusTalkEncoder::new()?;
+    let mut sequence = 0u64;
+
+    while !stop.load(Ordering::Relaxed) {
+        let Some(frame) = source.next_frame()? else { continue };
+        let opus = encoder.encode(&frame.pcm)?;
+        let datagram = AudioDatagram {
+            stream: "mic".into(),
+            sequence,
+            timestamp_us: frame.timestamp_us,
+            opus,
+        };
+        let body = skreen_proto::media::encode_audio(&datagram)?;
+        let _ = tx.send(Arc::new(body));
+        sequence += 1;
+    }
+
+    source.stop()?;
+    Ok(())
+}
+
 /// Viewer side: decode audio datagrams into interleaved i16 PCM batches.
 pub struct AudioReceiver {
     decoder: OpusTalkDecoder,
@@ -131,4 +166,5 @@ mod tests {
         assert!(opus.len() < FRAME_SAMPLES * 2 / 4, "opus {} bytes", opus.len());
     }
 }
+
 

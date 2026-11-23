@@ -8,7 +8,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 
 | Capability | Evidence |
 |---|---|
-| Workspace builds and tests pass | `cargo test --workspace` → 48 tests |
+| Workspace builds and tests pass | `cargo test --workspace` → 49 tests |
 | Screen capture (Windows) | `spike` wrote 20 H.264 frames; `serve` streams the primary monitor |
 | H.264 encode (openh264, screen-content tune) | `skreen-codec::h264::OpenH264Encoder` |
 | H.264 decode | `watch` decoded 150 frames in release |
@@ -41,7 +41,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 | macOS capture (ScreenCaptureKit) | Scaffolded; returns an explicit "not yet implemented" error |
 | Linux capture (PipeWire/X11) | Backend detection scaffolded; capture not implemented |
 | Hardware encoders (NVENC/QSV/VideoToolbox/VAAPI) | Not implemented; software openh264 only |
-| Audio over the wire | Sender thread (capture→Opus→datagram) and viewer decoder implemented |
+| Audio over the wire | Room `--audio` streams one capture to all viewers; viewer decoder + tests |
 | NACK retransmission | Implemented end to end: viewer detects gaps, presenter resends from a bounded buffer |
 | Adaptive bitrate | Driven by live viewer quality reports; encoder rebuilds at the new bitrate |
 | Consent UI | Gate logic exists; no on-screen prompt |
@@ -58,5 +58,6 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
