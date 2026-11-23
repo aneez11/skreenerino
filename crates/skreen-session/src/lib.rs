@@ -52,6 +52,9 @@ impl Room {
 
     pub fn request_present(&mut self, device: &DeviceId, stream: StreamId) -> Result<(), SessionError> {
         let p = self.participants.get_mut(&device.0).ok_or_else(|| SessionError::UnknownParticipant(device.0.clone()))?;
+        // A device presents at most one stream at a time; a new stream replaces
+        // the old one so stale streams can never accumulate.
+        self.streams.retain(|_, owner| owner != device);
         p.state = ParticipantState::Presenting(stream.clone());
         self.streams.insert(stream.0, device.clone());
         Ok(())
@@ -121,6 +124,18 @@ mod tests {
     }
 
     #[test]
+    fn republishing_replaces_previous_stream() {
+        use skreen_proto::Role;
+        let mut room = Room::default();
+        let a = DeviceId("a".into());
+        room.join(a.clone(), Role::Presenter);
+        room.request_present(&a, StreamId("s1".into())).unwrap();
+        room.request_present(&a, StreamId("s2".into())).unwrap();
+        assert_eq!(room.active_streams().len(), 1);
+        assert_eq!(room.active_streams()[0].0 .0, "s2");
+    }
+
+    #[test]
     fn multi_presenter_streams_and_stop() {
         use skreen_proto::Role;
         let mut room = Room::default();
@@ -150,4 +165,5 @@ mod tests {
         assert_eq!(room.streams.get("s1"), Some(&b));
     }
 }
+
 

@@ -1,0 +1,55 @@
+﻿name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux capture/system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libpipewire-0.3-dev libxcb1-dev \
+            libxrandr-dev libdbus-1-dev pkg-config cmake
+
+      - name: Build platform-neutral crates
+        run: cargo build -p skreen-proto -p skreen-session -p skreen-security -p skreen-transport -p skreen-discovery
+
+      - name: Test platform-neutral crates
+        run: cargo test -p skreen-proto -p skreen-session -p skreen-security -p skreen-transport -p skreen-discovery -p skreen-render
+
+      - name: Clippy
+        run: cargo clippy -p skreen-proto -p skreen-session -p skreen-security -p skreen-transport -- -D warnings
+
+      - name: Audio feature (Linux/macOS/Windows)
+        run: cargo build -p skreen-audio --features native
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check

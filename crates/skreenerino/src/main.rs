@@ -2,6 +2,7 @@
 mod latency;
 mod relay;
 mod room;
+mod soak;
 mod spike;
 
 use anyhow::Result;
@@ -31,6 +32,11 @@ enum Commands {
         bind: SocketAddr,
         #[arg(long)]
         stream: Option<String>,
+    },
+    /// Long-running churn/leak test (requires the `soak` feature)
+    Soak {
+        #[arg(long, default_value_t = 5)]
+        minutes: u32,
     },
     /// Run relay/SFU endpoint: forwards one presenter to many viewers
     Relay {
@@ -109,6 +115,7 @@ async fn main() -> Result<()> {
         Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
+        Commands::Soak { minutes } => soak::run(minutes),
         Commands::Relay { bind } => relay::run_relay(bind).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
         Commands::AudioTest { frames } => audio_test(frames),
@@ -666,6 +673,8 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
 
 
 

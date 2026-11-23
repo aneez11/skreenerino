@@ -4,6 +4,11 @@ target/
 **/target/
 .tools/
 .skreenerino/
+dist/
+*.h264
+spike.h264
+serve.out.txt
+serve.err.txt
 .DS_Store
 Thumbs.db
 .codebase-memory/
