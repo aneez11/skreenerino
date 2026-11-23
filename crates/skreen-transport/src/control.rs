@@ -1,4 +1,4 @@
-﻿//! Length-prefixed control-message framing over a QUIC bidirectional stream.
+//! Length-prefixed control-message framing over a QUIC bidirectional stream.
 
 use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -10,7 +10,9 @@ pub async fn write_frame<W: AsyncWriteExt + Unpin>(writer: &mut W, payload: &[u8
     if payload.len() > MAX_FRAME_BYTES {
         anyhow::bail!("control frame too large: {} bytes", payload.len());
     }
-    writer.write_all(&(payload.len() as u32).to_be_bytes()).await?;
+    writer
+        .write_all(&(payload.len() as u32).to_be_bytes())
+        .await?;
     writer.write_all(payload).await?;
     writer.flush().await?;
     Ok(())
@@ -97,4 +99,3 @@ mod tests {
         ));
     }
 }
-

@@ -32,7 +32,17 @@ impl TileLayout {
         let tiles = match layout {
             Layout::Single => streams
                 .first()
-                .map(|s| vec![Tile { stream: s.clone(), rect: Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 } }])
+                .map(|s| {
+                    vec![Tile {
+                        stream: s.clone(),
+                        rect: Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            w: 1.0,
+                            h: 1.0,
+                        },
+                    }]
+                })
                 .unwrap_or_default(),
             Layout::Grid => {
                 let n = streams.len().max(1);
@@ -57,7 +67,15 @@ impl TileLayout {
                 let mut tiles: Vec<Tile> = streams
                     .iter()
                     .take(1)
-                    .map(|s| Tile { stream: s.clone(), rect: Rect { x: 0.0, y: 0.0, w: 1.0, h: 1.0 } })
+                    .map(|s| Tile {
+                        stream: s.clone(),
+                        rect: Rect {
+                            x: 0.0,
+                            y: 0.0,
+                            w: 1.0,
+                            h: 1.0,
+                        },
+                    })
                     .collect();
                 let inset = 0.25f32;
                 for (i, s) in streams.iter().skip(1).enumerate() {
@@ -83,7 +101,10 @@ impl TileLayout {
             .iter()
             .rev()
             .find(|t| {
-                x >= t.rect.x && x <= t.rect.x + t.rect.w && y >= t.rect.y && y <= t.rect.y + t.rect.h
+                x >= t.rect.x
+                    && x <= t.rect.x + t.rect.w
+                    && y >= t.rect.y
+                    && y <= t.rect.y + t.rect.h
             })
             .map(|t| t.stream.as_str())
     }

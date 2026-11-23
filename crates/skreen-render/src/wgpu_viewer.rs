@@ -1,4 +1,4 @@
-﻿//! Minimal wgpu viewer: renders decoded RGBA frames full-window with nearest sampling.
+//! Minimal wgpu viewer: renders decoded RGBA frames full-window with nearest sampling.
 
 use anyhow::{Context, Result};
 use std::sync::mpsc::{Receiver, SyncSender};
@@ -270,8 +270,14 @@ impl GpuState {
             label: Some("frame-bind-group"),
             layout: &self.bind_group_layout,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
             ],
         });
         self.texture = Some((texture, bind_group, frame.size));
@@ -279,10 +285,14 @@ impl GpuState {
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("frame-encoder"),
-        });
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("frame-encoder"),
+            });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("frame-pass"),
@@ -401,7 +411,13 @@ pub fn run_blocking(title: String, frames: Receiver<Arc<RgbaFrame>>) -> Result<(
     #[cfg(not(target_os = "windows"))]
     let event_loop = EventLoop::<ViewerEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App { window: None, gpu: None, frames, pending: None, title };
+    let mut app = App {
+        window: None,
+        gpu: None,
+        frames,
+        pending: None,
+        title,
+    };
     event_loop.run_app(&mut app)?;
     Ok(())
 }
@@ -420,5 +436,3 @@ pub fn forward_frames(rx: Receiver<Arc<RgbaFrame>>, proxy: ViewerProxy) {
 pub fn frame_channel(capacity: usize) -> (SyncSender<Arc<RgbaFrame>>, Receiver<Arc<RgbaFrame>>) {
     std::sync::mpsc::sync_channel(capacity)
 }
-
-

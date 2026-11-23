@@ -1,4 +1,4 @@
-﻿pub mod select;
+pub mod select;
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -11,7 +11,13 @@ pub struct EncodedPacket {
 }
 
 pub trait Encoder {
-    fn encode(&mut self, rgba: &[u8], width: u32, height: u32, timestamp_us: u64) -> Result<Vec<EncodedPacket>>;
+    fn encode(
+        &mut self,
+        rgba: &[u8],
+        width: u32,
+        height: u32,
+        timestamp_us: u64,
+    ) -> Result<Vec<EncodedPacket>>;
     fn force_keyframe(&mut self);
 }
 
@@ -30,8 +36,18 @@ pub trait Decoder {
 pub struct NullEncoder;
 
 impl Encoder for NullEncoder {
-    fn encode(&mut self, rgba: &[u8], _w: u32, _h: u32, timestamp_us: u64) -> Result<Vec<EncodedPacket>> {
-        Ok(vec![EncodedPacket { timestamp_us, keyframe: true, bytes: Bytes::copy_from_slice(rgba) }])
+    fn encode(
+        &mut self,
+        rgba: &[u8],
+        _w: u32,
+        _h: u32,
+        timestamp_us: u64,
+    ) -> Result<Vec<EncodedPacket>> {
+        Ok(vec![EncodedPacket {
+            timestamp_us,
+            keyframe: true,
+            bytes: Bytes::copy_from_slice(rgba),
+        }])
     }
     fn force_keyframe(&mut self) {}
 }
@@ -40,7 +56,9 @@ impl Encoder for NullEncoder {
 pub mod h264 {
     use super::*;
     use openh264::decoder::Decoder as H264Decoder;
-    use openh264::encoder::{BitRate, Encoder as H264Encoder, EncoderConfig, FrameRate, FrameType, UsageType};
+    use openh264::encoder::{
+        BitRate, Encoder as H264Encoder, EncoderConfig, FrameRate, FrameType, UsageType,
+    };
     use openh264::formats::{RgbaSliceU8, YUVBuffer};
     use openh264::OpenH264API;
 
@@ -70,7 +88,9 @@ pub mod h264 {
             })
         }
 
-        pub fn bitrate_bps(&self) -> u32 { self.bitrate_bps }
+        pub fn bitrate_bps(&self) -> u32 {
+            self.bitrate_bps
+        }
 
         /// Rebuild the encoder with a new target bitrate (used by adaptive bitrate).
         /// Returns `true` when the change was applied.
@@ -82,8 +102,7 @@ pub mod h264 {
                 .bitrate(BitRate::from_bps(bitrate_bps))
                 .max_frame_rate(FrameRate::from_hz(self.fps))
                 .usage_type(UsageType::ScreenContentRealTime);
-            self.encoder =
-                H264Encoder::with_api_config(OpenH264API::from_source(), config)?;
+            self.encoder = H264Encoder::with_api_config(OpenH264API::from_source(), config)?;
             self.bitrate_bps = bitrate_bps;
             self.pending_keyframe = true;
             Ok(true)
@@ -91,7 +110,13 @@ pub mod h264 {
     }
 
     impl Encoder for OpenH264Encoder {
-        fn encode(&mut self, rgba: &[u8], width: u32, height: u32, timestamp_us: u64) -> Result<Vec<EncodedPacket>> {
+        fn encode(
+            &mut self,
+            rgba: &[u8],
+            width: u32,
+            height: u32,
+            timestamp_us: u64,
+        ) -> Result<Vec<EncodedPacket>> {
             let (w, h) = (width as usize, height as usize);
             if w != self.width || h != self.height {
                 self.encoder = H264Encoder::with_api_config(
@@ -114,11 +139,19 @@ pub mod h264 {
             let bitstream = self.encoder.encode(&yuv)?;
             let keyframe = matches!(bitstream.frame_type(), FrameType::IDR | FrameType::I);
             let bytes = Bytes::from(bitstream.to_vec());
-            if bytes.is_empty() { return Ok(Vec::new()); }
-            Ok(vec![EncodedPacket { timestamp_us, keyframe, bytes }])
+            if bytes.is_empty() {
+                return Ok(Vec::new());
+            }
+            Ok(vec![EncodedPacket {
+                timestamp_us,
+                keyframe,
+                bytes,
+            }])
         }
 
-        fn force_keyframe(&mut self) { self.pending_keyframe = true; }
+        fn force_keyframe(&mut self) {
+            self.pending_keyframe = true;
+        }
     }
 
     pub struct OpenH264Decoder {
@@ -126,19 +159,26 @@ pub mod h264 {
     }
 
     impl OpenH264Decoder {
-        pub fn new() -> Result<Self> { Ok(Self { decoder: H264Decoder::new()? }) }
+        pub fn new() -> Result<Self> {
+            Ok(Self {
+                decoder: H264Decoder::new()?,
+            })
+        }
     }
 
     impl Decoder for OpenH264Decoder {
         fn decode(&mut self, packet: &[u8]) -> Result<Option<DecodedFrame>> {
-            let Some(decoded) = self.decoder.decode(packet)? else { return Ok(None); };
+            let Some(decoded) = self.decoder.decode(packet)? else {
+                return Ok(None);
+            };
             let (w, h) = openh264::formats::YUVSource::dimensions(&decoded);
             let mut rgba = vec![0u8; w * h * 4];
             decoded.write_rgba8(&mut rgba);
-            Ok(Some(DecodedFrame { width: w as u32, height: h as u32, rgba }))
+            Ok(Some(DecodedFrame {
+                width: w as u32,
+                height: h as u32,
+                rgba,
+            }))
         }
     }
 }
-
-
-

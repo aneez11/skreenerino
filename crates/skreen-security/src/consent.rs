@@ -1,4 +1,4 @@
-﻿//! Consent flow for push/pull screen sharing.
+//! Consent flow for push/pull screen sharing.
 
 use crate::{Consent, ConsentKind, ConsentRequest};
 
@@ -18,10 +18,14 @@ impl ConsentGate {
         Consent::Expired
     }
 
-    pub fn pending(&self) -> Option<&ConsentRequest> { self.pending.as_ref() }
+    pub fn pending(&self) -> Option<&ConsentRequest> {
+        self.pending.as_ref()
+    }
 
     pub fn respond(&mut self, accepted: bool, remember: bool) -> Consent {
-        let Some(req) = self.pending.take() else { return Consent::Expired };
+        let Some(req) = self.pending.take() else {
+            return Consent::Expired;
+        };
         if accepted {
             if remember {
                 self.allowed.push(req.requester.clone());
@@ -36,7 +40,9 @@ impl ConsentGate {
         self.allowed.retain(|r| r != requester);
     }
 
-    pub fn allowlist(&self) -> &[String] { &self.allowed }
+    pub fn allowlist(&self) -> &[String] {
+        &self.allowed
+    }
 }
 
 #[cfg(test)]
@@ -67,4 +73,3 @@ mod tests {
         assert_eq!(gate.respond(true, false), Consent::Expired);
     }
 }
-

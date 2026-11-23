@@ -1,4 +1,4 @@
-﻿//! Audio capture + Opus encode/decode (phase 2).
+//! Audio capture + Opus encode/decode (phase 2).
 
 use anyhow::Result;
 
@@ -29,9 +29,15 @@ pub trait AudioDecoder {
 #[derive(Debug, Default)]
 pub struct NullAudioSource;
 impl AudioSource for NullAudioSource {
-    fn start(&mut self) -> Result<()> { Ok(()) }
-    fn next_frame(&mut self) -> Result<Option<AudioFrame>> { Ok(None) }
-    fn stop(&mut self) -> Result<()> { Ok(()) }
+    fn start(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn next_frame(&mut self) -> Result<Option<AudioFrame>> {
+        Ok(None)
+    }
+    fn stop(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Whether the platform exposes a default input device at all.
@@ -42,12 +48,17 @@ pub fn has_input_device() -> bool {
 }
 
 #[cfg(not(feature = "native"))]
-pub fn has_input_device() -> bool { false }
+pub fn has_input_device() -> bool {
+    false
+}
 
 #[cfg(feature = "native")]
 pub mod opus_codec {
     use super::*;
-    use audiopus::{coder::Decoder as OpusDecoder, coder::Encoder as OpusEncoder, Application, Channels, MutSignals, SampleRate};
+    use audiopus::{
+        coder::Decoder as OpusDecoder, coder::Encoder as OpusEncoder, Application, Channels,
+        MutSignals, SampleRate,
+    };
 
     pub struct OpusTalkEncoder {
         inner: OpusEncoder,
@@ -56,9 +67,13 @@ pub mod opus_codec {
 
     impl OpusTalkEncoder {
         pub fn new() -> Result<Self> {
-            let mut inner = OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)?;
+            let mut inner =
+                OpusEncoder::new(SampleRate::Hz48000, Channels::Mono, Application::Voip)?;
             inner.set_bitrate(audiopus::Bitrate::BitsPerSecond(32_000))?;
-            Ok(Self { inner, out: vec![0u8; 4096] })
+            Ok(Self {
+                inner,
+                out: vec![0u8; 4096],
+            })
         }
     }
 
@@ -76,7 +91,10 @@ pub mod opus_codec {
 
     impl OpusTalkDecoder {
         pub fn new() -> Result<Self> {
-            Ok(Self { inner: OpusDecoder::new(SampleRate::Hz48000, Channels::Mono)?, pcm: vec![0i16; FRAME_SAMPLES] })
+            Ok(Self {
+                inner: OpusDecoder::new(SampleRate::Hz48000, Channels::Mono)?,
+                pcm: vec![0i16; FRAME_SAMPLES],
+            })
         }
     }
 
@@ -111,7 +129,9 @@ pub mod cpal_source {
     impl CpalSource {
         pub fn new() -> Result<Self> {
             let host = cpal::default_host();
-            let device = host.default_input_device().ok_or_else(|| anyhow::anyhow!("no input device"))?;
+            let device = host
+                .default_input_device()
+                .ok_or_else(|| anyhow::anyhow!("no input device"))?;
             let config = cpal::StreamConfig {
                 channels: CHANNELS,
                 sample_rate: cpal::SampleRate(SAMPLE_RATE),
@@ -159,14 +179,21 @@ pub mod cpal_source {
         }
 
         fn next_frame(&mut self) -> Result<Option<AudioFrame>> {
-            let Some(frames) = &self.frames else { return Ok(None) };
-            frames.recv_timeout(std::time::Duration::from_millis(200)).ok();
+            let Some(frames) = &self.frames else {
+                return Ok(None);
+            };
+            frames
+                .recv_timeout(std::time::Duration::from_millis(200))
+                .ok();
             let mut buf = self.buffer.lock().expect("audio buffer poisoned");
             if buf.len() < FRAME_SAMPLES {
                 return Ok(None);
             }
             let pcm: Vec<i16> = buf.drain(..FRAME_SAMPLES).collect();
-            Ok(Some(AudioFrame { timestamp_us: self.started.elapsed().as_micros() as u64, pcm }))
+            Ok(Some(AudioFrame {
+                timestamp_us: self.started.elapsed().as_micros() as u64,
+                pcm,
+            }))
         }
 
         fn stop(&mut self) -> Result<()> {
@@ -188,6 +215,3 @@ mod tests {
         assert_eq!(FRAME_SAMPLES, (SAMPLE_RATE as usize / 1000) * 20);
     }
 }
-
-
-

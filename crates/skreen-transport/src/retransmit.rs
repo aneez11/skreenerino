@@ -27,7 +27,10 @@ impl RetransmitBuffer {
 
     pub fn record(&mut self, datagram: MediaDatagram) {
         let sequence = datagram.sequence;
-        self.entries.entry(sequence).or_default().push_back(datagram);
+        self.entries
+            .entry(sequence)
+            .or_default()
+            .push_back(datagram);
         if !self.order.contains(&sequence) {
             self.order.push_back(sequence);
         }
@@ -57,8 +60,12 @@ impl RetransmitBuffer {
         (self.hits, self.misses)
     }
 
-    pub fn len(&self) -> usize { self.order.len() }
-    pub fn is_empty(&self) -> bool { self.order.is_empty() }
+    pub fn len(&self) -> usize {
+        self.order.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
 }
 
 #[cfg(test)]

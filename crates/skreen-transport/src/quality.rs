@@ -1,4 +1,4 @@
-﻿use std::time::{Duration, Instant};
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QualityTier {
@@ -17,7 +17,11 @@ impl QualityTier {
     }
 
     pub fn scale(self) -> f32 {
-        match self { Self::Low => 0.5, Self::Medium => 0.75, Self::High => 1.0 }
+        match self {
+            Self::Low => 0.5,
+            Self::Medium => 0.75,
+            Self::High => 1.0,
+        }
     }
 }
 
@@ -48,7 +52,9 @@ impl AdaptiveBitrate {
         }
     }
 
-    pub fn current(&self) -> QualityTier { self.current }
+    pub fn current(&self) -> QualityTier {
+        self.current
+    }
 
     /// Returns Some(new tier) when a change should be applied.
     pub fn observe(&mut self, report: &QualityReport, now: Instant) -> Option<QualityTier> {
@@ -96,7 +102,11 @@ pub struct LossTracker {
 
 impl Default for LossTracker {
     fn default() -> Self {
-        Self { highest: 0, seen: Default::default(), max_tracked: 512 }
+        Self {
+            highest: 0,
+            seen: Default::default(),
+            max_tracked: 512,
+        }
     }
 }
 
@@ -134,24 +144,47 @@ mod tests {
     fn steps_down_under_loss_then_recovers() {
         let mut abr = AdaptiveBitrate::new(QualityTier::High, 50, 30);
         let start = Instant::now();
-        let bad = QualityReport { rtt_ms: 200, loss_permille: 120, decode_ms: 80 };
-        assert_eq!(abr.observe(&bad, start + Duration::from_secs(3)), Some(QualityTier::Medium));
-        assert_eq!(abr.observe(&bad, start + Duration::from_secs(6)), Some(QualityTier::Low));
-        let good = QualityReport { rtt_ms: 5, loss_permille: 0, decode_ms: 5 };
-        assert_eq!(abr.observe(&good, start + Duration::from_secs(9)), Some(QualityTier::Medium));
+        let bad = QualityReport {
+            rtt_ms: 200,
+            loss_permille: 120,
+            decode_ms: 80,
+        };
+        assert_eq!(
+            abr.observe(&bad, start + Duration::from_secs(3)),
+            Some(QualityTier::Medium)
+        );
+        assert_eq!(
+            abr.observe(&bad, start + Duration::from_secs(6)),
+            Some(QualityTier::Low)
+        );
+        let good = QualityReport {
+            rtt_ms: 5,
+            loss_permille: 0,
+            decode_ms: 5,
+        };
+        assert_eq!(
+            abr.observe(&good, start + Duration::from_secs(9)),
+            Some(QualityTier::Medium)
+        );
     }
 
     #[test]
     fn holds_tier_during_min_hold() {
         let mut abr = AdaptiveBitrate::new(QualityTier::High, 50, 30);
-        let bad = QualityReport { rtt_ms: 400, loss_permille: 200, decode_ms: 90 };
+        let bad = QualityReport {
+            rtt_ms: 400,
+            loss_permille: 200,
+            decode_ms: 90,
+        };
         assert_eq!(abr.observe(&bad, Instant::now()), None);
     }
 
     #[test]
     fn reports_missing_sequences() {
         let mut lt = LossTracker::default();
-        for seq in [1, 2, 4, 5, 7] { lt.record(seq); }
+        for seq in [1, 2, 4, 5, 7] {
+            lt.record(seq);
+        }
         assert_eq!(lt.missing(5), vec![3, 6]);
     }
 }

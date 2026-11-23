@@ -1,4 +1,4 @@
-﻿//! Long-running soak test with join/leave churn.
+//! Long-running soak test with join/leave churn.
 //!
 //! Run manually or in a nightly job:
 //!   cargo run -p skreenerino --features soak -- soak --minutes 5
@@ -75,11 +75,13 @@ fn report(room: &skreen_session::Room, cycles: u64, dropped: u64, elapsed: std::
         "participant map grew unexpectedly: {}",
         room.participants.len()
     );
-    assert!(room.active_streams().len() <= 64, "stream map grew unexpectedly");
+    assert!(
+        room.active_streams().len() <= 64,
+        "stream map grew unexpectedly"
+    );
 }
 
 #[cfg(not(feature = "soak"))]
 pub fn run(_minutes: u32) -> anyhow::Result<()> {
     anyhow::bail!("soak requires the `soak` feature")
 }
-

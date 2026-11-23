@@ -1,4 +1,4 @@
-﻿//! Frame surface abstraction. The `wgpu` feature provides a real window.
+//! Frame surface abstraction. The `wgpu` feature provides a real window.
 
 pub mod layout;
 
@@ -16,7 +16,9 @@ pub struct RgbaFrame {
 }
 
 impl RgbaFrame {
-    pub fn byte_len(&self) -> usize { self.pixels.len() }
+    pub fn byte_len(&self) -> usize {
+        self.pixels.len()
+    }
     pub fn is_consistent(&self) -> bool {
         self.pixels.len() == (self.size.width as usize) * (self.size.height as usize) * 4
     }
@@ -24,4 +26,3 @@ impl RgbaFrame {
 
 #[cfg(feature = "wgpu")]
 pub mod wgpu_viewer;
-

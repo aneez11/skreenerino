@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use skreen_proto::DeviceId;
 use std::net::IpAddr;
@@ -35,12 +35,19 @@ pub mod mdns {
     pub struct MdnsDiscovery {
         daemon: ServiceDaemon,
         fullnames: Vec<String>,
-        browse: Option<(mdns_sd::Receiver<ServiceEvent>, std::collections::HashMap<String, AdvertisedPeer>)>,
+        browse: Option<(
+            mdns_sd::Receiver<ServiceEvent>,
+            std::collections::HashMap<String, AdvertisedPeer>,
+        )>,
     }
 
     impl MdnsDiscovery {
         pub fn new() -> Result<Self> {
-            Ok(Self { daemon: ServiceDaemon::new()?, fullnames: Vec::new(), browse: None })
+            Ok(Self {
+                daemon: ServiceDaemon::new()?,
+                fullnames: Vec::new(),
+                browse: None,
+            })
         }
 
         fn ensure_browse(&mut self) -> Result<()> {
@@ -52,13 +59,17 @@ pub mod mdns {
         }
 
         fn drain(&mut self) {
-            let Some((receiver, found)) = self.browse.as_mut() else { return };
+            let Some((receiver, found)) = self.browse.as_mut() else {
+                return;
+            };
             while let Ok(event) = receiver.try_recv() {
                 match event {
                     ServiceEvent::ServiceResolved(info) => {
                         let device = info
                             .get_property_val_str("device")
-                            .unwrap_or_else(|| info.get_fullname().split('.').next().unwrap_or("unknown"))
+                            .unwrap_or_else(|| {
+                                info.get_fullname().split('.').next().unwrap_or("unknown")
+                            })
                             .to_string();
                         let room = info.get_property_val_str("room").map(str::to_string);
                         let host = info
@@ -66,10 +77,17 @@ pub mod mdns {
                             .iter()
                             .next()
                             .map(|ip| ip.to_string())
-                            .unwrap_or_else(|| info.get_hostname().trim_end_matches('.').to_string());
+                            .unwrap_or_else(|| {
+                                info.get_hostname().trim_end_matches('.').to_string()
+                            });
                         found.insert(
                             device.clone(),
-                            AdvertisedPeer { device: DeviceId(device), host, port: info.get_port(), room },
+                            AdvertisedPeer {
+                                device: DeviceId(device),
+                                host,
+                                port: info.get_port(),
+                                room,
+                            },
                         );
                     }
                     ServiceEvent::ServiceRemoved(_, fullname) => {
@@ -90,7 +108,11 @@ pub mod mdns {
                 std::thread::sleep(Duration::from_millis(100));
             }
             self.drain();
-            Ok(self.browse.as_ref().map(|(_, f)| f.values().cloned().collect()).unwrap_or_default())
+            Ok(self
+                .browse
+                .as_ref()
+                .map(|(_, f)| f.values().cloned().collect())
+                .unwrap_or_default())
         }
     }
 
@@ -163,8 +185,13 @@ pub struct ManualPeer {
 
 pub fn parse_manual_endpoint(input: &str) -> Option<ManualPeer> {
     let (host, port) = input.rsplit_once(':')?;
-    if host.is_empty() { return None; }
-    Some(ManualPeer { host: host.to_string(), port: port.parse().ok()? })
+    if host.is_empty() {
+        return None;
+    }
+    Some(ManualPeer {
+        host: host.to_string(),
+        port: port.parse().ok()?,
+    })
 }
 
 #[derive(Debug, Default)]
@@ -177,8 +204,13 @@ impl DiscoveryService for InMemoryDiscovery {
         self.advertised.push(peer.clone());
         Ok(())
     }
-    fn browse(&mut self) -> Result<Vec<AdvertisedPeer>> { Ok(self.advertised.clone()) }
-    fn shutdown(&mut self) -> Result<()> { self.advertised.clear(); Ok(()) }
+    fn browse(&mut self) -> Result<Vec<AdvertisedPeer>> {
+        Ok(self.advertised.clone())
+    }
+    fn shutdown(&mut self) -> Result<()> {
+        self.advertised.clear();
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -205,7 +237,3 @@ mod tests {
         assert_eq!(d.browse().unwrap(), vec![peer]);
     }
 }
-
-
-
-

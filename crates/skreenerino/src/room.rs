@@ -1,10 +1,10 @@
-﻿//! One-to-many presenter: capture and encode once on a dedicated thread, fan out
+//! One-to-many presenter: capture and encode once on a dedicated thread, fan out
 //! the encoded packets to every connected viewer.
 
 use anyhow::Result;
 use bytes::Bytes;
 use skreen_capture::{xcap_backend::XcapCapturer, ScreenCapturer};
-use skreen_codec::{h264::OpenH264Encoder, Encoder, EncodedPacket};
+use skreen_codec::{h264::OpenH264Encoder, EncodedPacket, Encoder};
 use skreen_proto::fragment::Fragmenter;
 use skreen_proto::media::MediaDatagram;
 use skreen_proto::{Capabilities, ControlMessage, DeviceId, PROTOCOL_VERSION};
@@ -63,16 +63,26 @@ impl RoomShared {
     }
 
     pub fn take_report(&self) -> Option<skreen_transport::quality::QualityReport> {
-        self.latest_report.write().ok().and_then(|mut slot| slot.take())
+        self.latest_report
+            .write()
+            .ok()
+            .and_then(|mut slot| slot.take())
     }
 }
 
 impl Default for RoomShared {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Accept viewers until `shutdown` resolves or the encoder thread stops.
-pub async fn run_room<S>(server: quic::QuicServer, cfg: RoomConfig, shared: Arc<RoomShared>, shutdown: S) -> Result<()>
+pub async fn run_room<S>(
+    server: quic::QuicServer,
+    cfg: RoomConfig,
+    shared: Arc<RoomShared>,
+    shutdown: S,
+) -> Result<()>
 where
     S: std::future::Future<Output = ()>,
 {
@@ -138,13 +148,9 @@ where
                             .flatten();
 
                             #[cfg(feature = "audio")]
-                            let result = viewer_task_with_audio(
-                                conn.clone(),
-                                rx,
-                                audio_rx,
-                                shared.clone(),
-                            )
-                            .await;
+                            let result =
+                                viewer_task_with_audio(conn.clone(), rx, audio_rx, shared.clone())
+                                    .await;
                             #[cfg(not(feature = "audio"))]
                             let result = viewer_task(conn.clone(), rx, shared.clone()).await;
                             if let Err(e) = result {
@@ -199,8 +205,7 @@ async fn viewer_task(
     let mut sequence = 0u64;
 
     // The control reader hands retransmission requests to the send loop.
-    let (nack_tx, mut nack_rx) =
-        tokio::sync::mpsc::unbounded_channel::<Vec<u64>>();
+    let (nack_tx, mut nack_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u64>>();
 
     if let Ok((mut control, mut remote_control)) = quic::open_control(&conn).await {
         let hello = skreen_proto::encode_control(&ControlMessage::Hello {
@@ -221,18 +226,23 @@ async fn viewer_task(
             loop {
                 match control::read_frame(&mut remote_control).await {
                     Ok(Some(frame)) => match skreen_proto::decode_control(&frame) {
-                        Ok(ControlMessage::KeyframeRequest { .. }) => shared_ctrl.request_keyframe(),
+                        Ok(ControlMessage::KeyframeRequest { .. }) => {
+                            shared_ctrl.request_keyframe()
+                        }
                         Ok(ControlMessage::Nack { sequences, .. }) => {
                             let _ = nack_tx.send(sequences);
                         }
-                        Ok(ControlMessage::QualityReport { rtt_ms, loss_permille, decode_ms, .. }) => {
-                            shared_ctrl.report_quality(
-                                skreen_transport::quality::QualityReport {
-                                    rtt_ms,
-                                    loss_permille,
-                                    decode_ms,
-                                },
-                            );
+                        Ok(ControlMessage::QualityReport {
+                            rtt_ms,
+                            loss_permille,
+                            decode_ms,
+                            ..
+                        }) => {
+                            shared_ctrl.report_quality(skreen_transport::quality::QualityReport {
+                                rtt_ms,
+                                loss_permille,
+                                decode_ms,
+                            });
                         }
                         Ok(_) => {}
                         Err(_) => {}
@@ -314,7 +324,10 @@ async fn viewer_task_with_audio(
     let conn_for_audio = conn.clone();
     tokio::spawn(async move {
         while let Ok(packet) = audio_rx.recv().await {
-            if conn_for_audio.send_datagram(Bytes::from(packet.as_ref().clone())).is_err() {
+            if conn_for_audio
+                .send_datagram(Bytes::from(packet.as_ref().clone()))
+                .is_err()
+            {
                 break;
             }
         }
@@ -403,16 +416,3 @@ fn encode_thread(
     tracing::info!("encoder thread stopped");
     Ok(())
 }
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::ProtoError;
 
@@ -79,4 +79,3 @@ mod tests {
         assert_eq!(decode_media(&encoded).unwrap(), msg);
     }
 }
-

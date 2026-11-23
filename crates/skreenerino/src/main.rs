@@ -1,4 +1,4 @@
-﻿#[cfg(feature = "audio")]
+#[cfg(feature = "audio")]
 mod audio_stream;
 mod gateway;
 mod latency;
@@ -114,11 +114,27 @@ async fn main() -> Result<()> {
     let _ = rustls::crypto::ring::default_provider().install_default();
 
     match Cli::parse().command {
-        Commands::Send { target, bitrate, fps } => send(&target, bitrate, fps).await,
+        Commands::Send {
+            target,
+            bitrate,
+            fps,
+        } => send(&target, bitrate, fps).await,
         Commands::Join { room, frames } => join(&room, frames).await,
         Commands::Discover => discover().await,
-        Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
-        Commands::Serve { bind, bitrate, fps, name, room, multi, audio } => serve(bind, bitrate, fps, name, room, multi, audio).await,
+        Commands::Spike {
+            output,
+            frames,
+            bitrate,
+        } => spike::run(&output, frames, bitrate),
+        Commands::Serve {
+            bind,
+            bitrate,
+            fps,
+            name,
+            room,
+            multi,
+            audio,
+        } => serve(bind, bitrate, fps, name, room, multi, audio).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
         Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
@@ -176,7 +192,7 @@ mod presenter {
     use skreen_codec::{h264::OpenH264Encoder, Encoder};
     use skreen_proto::fragment::Fragmenter;
     use skreen_proto::media::MediaDatagram;
-    use skreen_proto::{ControlMessage, DeviceId, Capabilities, PROTOCOL_VERSION};
+    use skreen_proto::{Capabilities, ControlMessage, DeviceId, PROTOCOL_VERSION};
     use skreen_transport::quic;
     use std::time::{Duration, Instant};
     use tokio::io::AsyncWriteExt;
@@ -193,7 +209,11 @@ mod presenter {
         let first = capturer
             .next_frame()?
             .ok_or_else(|| anyhow::anyhow!("screen capture returned no frames"))?;
-        tracing::info!(width = first.width, height = first.height, "capturing primary monitor");
+        tracing::info!(
+            width = first.width,
+            height = first.height,
+            "capturing primary monitor"
+        );
 
         let mut encoder = OpenH264Encoder::new(first.width, first.height, cfg.bitrate)?;
         let (mut control, _recv) = quic::open_control(&conn).await?;
@@ -404,7 +424,8 @@ mod viewer {
 
     pub fn start(title: &str) -> Result<Option<ViewerHandle>> {
         let path = std::env::current_exe().unwrap_or_default();
-        if std::env::var("SKREENERINO_NO_VIEWER").is_ok() || path.to_string_lossy().contains("deps") {
+        if std::env::var("SKREENERINO_NO_VIEWER").is_ok() || path.to_string_lossy().contains("deps")
+        {
             tracing::warn!("viewer disabled");
             return Ok(None);
         }
@@ -413,7 +434,10 @@ mod viewer {
         let thread = std::thread::Builder::new()
             .name("skreenerino-viewer".into())
             .spawn(move || skreen_render::wgpu_viewer::run_blocking(title, rx))?;
-        Ok(Some(ViewerHandle { tx, thread: Some(thread) }))
+        Ok(Some(ViewerHandle {
+            tx,
+            thread: Some(thread),
+        }))
     }
 }
 #[cfg(feature = "audio")]
@@ -425,14 +449,21 @@ fn synthetic_tone(index: u32) -> Vec<i16> {
     (0..n)
         .map(|i| {
             let t = (index as usize * n + i) as f32 / rate;
-            (TAU * freq * t).sin().mul_add(0.3, 0.0).mul_add(i16::MAX as f32, 0.0) as i16
+            (TAU * freq * t)
+                .sin()
+                .mul_add(0.3, 0.0)
+                .mul_add(i16::MAX as f32, 0.0) as i16
         })
         .collect()
 }
 fn audio_test(frames: u32) -> Result<()> {
     #[cfg(feature = "audio")]
     {
-        use skreen_audio::{opus_codec::{OpusTalkDecoder, OpusTalkEncoder}, AudioDecoder, AudioEncoder, AudioSource, cpal_source::CpalSource};
+        use skreen_audio::{
+            cpal_source::CpalSource,
+            opus_codec::{OpusTalkDecoder, OpusTalkEncoder},
+            AudioDecoder, AudioEncoder, AudioSource,
+        };
 
         let mut encoder = OpusTalkEncoder::new()?;
         let mut decoder = OpusTalkDecoder::new()?;
@@ -498,7 +529,8 @@ async fn web_view(bind: SocketAddr, stream: Option<String>) -> Result<()> {
             Some(s) => s,
             None => anyhow::bail!("web-view needs `--stream host:port` (or a room)"),
         };
-        let addr: SocketAddr = if let Some(peer) = skreen_discovery::parse_manual_endpoint(&target) {
+        let addr: SocketAddr = if let Some(peer) = skreen_discovery::parse_manual_endpoint(&target)
+        {
             format!("{}:{}", peer.host, peer.port).parse()?
         } else {
             let peers = browse_peers()?;
@@ -528,8 +560,12 @@ async fn web_view(bind: SocketAddr, stream: Option<String>) -> Result<()> {
                 }
             };
             loop {
-                let Ok(payload) = quic::recv_datagram(&conn).await else { break };
-                let Ok(datagram) = decode_media(&payload) else { continue };
+                let Ok(payload) = quic::recv_datagram(&conn).await else {
+                    break;
+                };
+                let Ok(datagram) = decode_media(&payload) else {
+                    continue;
+                };
                 let Some(frame_bytes) = reassembler.push(skreen_proto::fragment::FrameFragment {
                     stream: datagram.stream,
                     sequence: datagram.sequence,
@@ -570,8 +606,8 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "h264"))]
     {
         use skreen_codec::{h264::OpenH264Decoder, Decoder};
-        use skreen_proto::media::decode_media;
         use skreen_proto::fragment::Reassembler;
+        use skreen_proto::media::decode_media;
         use skreen_transport::quic;
 
         let conn = quic::connect(addr).await?;
@@ -580,7 +616,10 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
         let mut decoder = OpenH264Decoder::new()?;
 
         // Control channel for NACKs and keyframe requests back to the presenter.
-        let mut control_writer = quic::open_control(&conn).await.ok().map(|(send, _recv)| send);
+        let mut control_writer = quic::open_control(&conn)
+            .await
+            .ok()
+            .map(|(send, _recv)| send);
         let mut nack_scheduler =
             crate::nack::NackScheduler::new(64, std::time::Duration::from_millis(40));
         let mut last_nack_poll = std::time::Instant::now();
@@ -635,8 +674,7 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                     // Feed the presenter's adaptive bitrate controller with the
                     // loss rate observed in this reporting window.
                     let expected = datagrams.max(1);
-                    let loss_permille =
-                        ((missing.len() as u64 * 1000) / expected).min(1000) as u32;
+                    let loss_permille = ((missing.len() as u64 * 1000) / expected).min(1000) as u32;
                     let report = skreen_proto::ControlMessage::QualityReport {
                         stream: skreen_proto::StreamId("main".into()),
                         rtt_ms: 0,
@@ -668,7 +706,8 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
                     }
                     last_frame_at = Some(now);
                     frames += 1;
-                    let size = size_check.get_or_insert((frame.width as usize, frame.height as usize));
+                    let size =
+                        size_check.get_or_insert((frame.width as usize, frame.height as usize));
                     if *size == (0, 0) {
                         *size = (frame.width as usize, frame.height as usize);
                     }
@@ -693,7 +732,11 @@ async fn watch(addr: SocketAddr, max_frames: u32) -> Result<()> {
             (Some(a), Some(b)) => b.duration_since(a).as_secs_f64(),
             _ => 0.0,
         };
-        let fps = if stream_span > 0.0 { (frames.saturating_sub(1)) as f64 / stream_span } else { 0.0 };
+        let fps = if stream_span > 0.0 {
+            (frames.saturating_sub(1)) as f64 / stream_span
+        } else {
+            0.0
+        };
         println!(
             "decoded {frames} frames from {datagrams} datagrams ({keyframes} keyframe fragments), {bytes} bytes in {elapsed:?}"
         );
@@ -713,38 +756,13 @@ async fn join(room: &str, frames: u32) -> Result<()> {
         return watch(addr, frames).await;
     }
     let peers = browse_peers()?;
-    let Some(peer) = peers.into_iter().find(|p| p.device.0 == room || p.room.as_deref() == Some(room)) else {
+    let Some(peer) = peers
+        .into_iter()
+        .find(|p| p.device.0 == room || p.room.as_deref() == Some(room))
+    else {
         anyhow::bail!("no room or peer named `{room}`; pass `host:port` instead")
     };
     let addr: SocketAddr = format!("{}:{}", peer.host, peer.port).parse()?;
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 use bytes::Bytes;
 
 #[derive(Debug, Clone)]
@@ -31,7 +31,10 @@ pub mod xcap_backend {
                 .into_iter()
                 .next()
                 .ok_or_else(|| anyhow::anyhow!("no monitors found"))?;
-            Ok(Self { started: Instant::now(), inner: monitor })
+            Ok(Self {
+                started: Instant::now(),
+                inner: monitor,
+            })
         }
     }
 
@@ -54,7 +57,9 @@ pub mod xcap_backend {
             }))
         }
 
-        fn stop(&mut self) -> Result<()> { Ok(()) }
+        fn stop(&mut self) -> Result<()> {
+            Ok(())
+        }
     }
 }
 
@@ -79,11 +84,16 @@ pub mod macos_backend {
     }
 
     impl ScreenCapturer for ScreenCaptureKitCapturer {
-        fn start(&mut self) -> Result<()> { self.started = Instant::now(); Ok(()) }
+        fn start(&mut self) -> Result<()> {
+            self.started = Instant::now();
+            Ok(())
+        }
         fn next_frame(&mut self) -> Result<Option<CapturedFrame>> {
             anyhow::bail!("macOS capture backend not yet implemented")
         }
-        fn stop(&mut self) -> Result<()> { Ok(()) }
+        fn stop(&mut self) -> Result<()> {
+            Ok(())
+        }
     }
 }
 
@@ -99,7 +109,11 @@ pub mod linux_backend {
     impl LinuxCapturer {
         pub fn detect() -> Result<Self> {
             let session = std::env::var("XDG_SESSION_TYPE").unwrap_or_default();
-            let backend = if session.eq_ignore_ascii_case("wayland") { "pipewire" } else { "x11" };
+            let backend = if session.eq_ignore_ascii_case("wayland") {
+                "pipewire"
+            } else {
+                "x11"
+            };
             Ok(Self { backend })
         }
     }
@@ -111,8 +125,12 @@ pub mod linux_backend {
                 self.backend
             )
         }
-        fn next_frame(&mut self) -> Result<Option<CapturedFrame>> { Ok(None) }
-        fn stop(&mut self) -> Result<()> { Ok(()) }
+        fn next_frame(&mut self) -> Result<Option<CapturedFrame>> {
+            Ok(None)
+        }
+        fn stop(&mut self) -> Result<()> {
+            Ok(())
+        }
     }
 }
 
@@ -132,8 +150,13 @@ pub fn default_capturer() -> Result<Box<dyn ScreenCapturer>> {
 pub struct NullCapturer;
 
 impl ScreenCapturer for NullCapturer {
-    fn start(&mut self) -> Result<()> { Ok(()) }
-    fn next_frame(&mut self) -> Result<Option<CapturedFrame>> { Ok(None) }
-    fn stop(&mut self) -> Result<()> { Ok(()) }
+    fn start(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn next_frame(&mut self) -> Result<Option<CapturedFrame>> {
+        Ok(None)
+    }
+    fn stop(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
-

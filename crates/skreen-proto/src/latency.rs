@@ -1,4 +1,4 @@
-﻿//! Glass-to-glass latency measurement using an embedded timestamp token.
+//! Glass-to-glass latency measurement using an embedded timestamp token.
 
 #[cfg(feature = "async")]
 use anyhow::Result;
@@ -21,14 +21,24 @@ pub struct TokenPlacement {
 impl TokenPlacement {
     pub fn top_right(width: u32, margin: u32) -> Self {
         let block = 8;
-        Self { x: width.saturating_sub(margin + block * 3), y: margin, block }
+        Self {
+            x: width.saturating_sub(margin + block * 3),
+            y: margin,
+            block,
+        }
     }
 }
 
 const BITS: usize = 16;
 
 /// Stamp the low 16 bits of `sequence` as black/white blocks.
-pub fn stamp_token(pixels: &mut [u8], width: u32, height: u32, token: LatencyToken, at: TokenPlacement) {
+pub fn stamp_token(
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+    token: LatencyToken,
+    at: TokenPlacement,
+) {
     let stride = width as usize * 4;
     for bit in 0..BITS {
         let cx = bit % 3;
@@ -55,7 +65,12 @@ pub fn stamp_token(pixels: &mut [u8], width: u32, height: u32, token: LatencyTok
 }
 
 /// Read back the token. Returns `None` when the blocks are not clearly black/white.
-pub fn read_token(pixels: &[u8], width: u32, height: u32, at: TokenPlacement) -> Option<LatencyToken> {
+pub fn read_token(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    at: TokenPlacement,
+) -> Option<LatencyToken> {
     let stride = width as usize * 4;
     let mut sequence = 0u64;
     for bit in 0..BITS {
@@ -102,10 +117,16 @@ pub struct LatencyReport {
 
 impl LatencyHarness {
     pub fn new(width: u32, max_samples: usize) -> Self {
-        Self { placement: TokenPlacement::top_right(width, 16), sent: Vec::new(), max_samples }
+        Self {
+            placement: TokenPlacement::top_right(width, 16),
+            sent: Vec::new(),
+            max_samples,
+        }
     }
 
-    pub fn placement(&self) -> TokenPlacement { self.placement }
+    pub fn placement(&self) -> TokenPlacement {
+        self.placement
+    }
 
     pub fn on_send(&mut self, token: LatencyToken, at: Instant) {
         self.sent.push((token.sequence & 0xffff, at));
@@ -130,7 +151,9 @@ impl LatencyHarness {
         let mut ms: Vec<f64> = samples.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
         ms.sort_by(|a, b| a.partial_cmp(b).unwrap());
         let mean = ms.iter().sum::<f64>() / ms.len() as f64;
-        let p95_index = ((ms.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(ms.len() - 1);
+        let p95_index = ((ms.len() as f64 * 0.95).ceil() as usize)
+            .saturating_sub(1)
+            .min(ms.len() - 1);
         LatencyReport {
             samples: ms.len(),
             min_ms: ms[0],
@@ -143,7 +166,11 @@ impl LatencyHarness {
 
 /// Convenience for the CLI: wait until the harness has enough samples.
 #[cfg(feature = "async")]
-pub async fn await_samples(mut have: impl FnMut() -> usize, target: usize, timeout: Duration) -> Result<usize> {
+pub async fn await_samples(
+    mut have: impl FnMut() -> usize,
+    target: usize,
+    timeout: Duration,
+) -> Result<usize> {
     let deadline = Instant::now() + timeout;
     while Instant::now() < deadline {
         let n = have();
@@ -164,7 +191,9 @@ mod tests {
         let (w, h) = (160u32, 90u32);
         let mut pixels = vec![0u8; w as usize * h as usize * 4];
         let placement = TokenPlacement::top_right(w, 16);
-        let token = LatencyToken { sequence: 0b1011_0101 };
+        let token = LatencyToken {
+            sequence: 0b1011_0101,
+        };
         stamp_token(&mut pixels, w, h, token, placement);
         assert_eq!(read_token(&pixels, w, h, placement), Some(token));
     }
@@ -174,7 +203,10 @@ mod tests {
         let (w, h) = (160u32, 90u32);
         let pixels = vec![0u8; w as usize * h as usize * 4];
         let placement = TokenPlacement::top_right(w, 16);
-        assert_eq!(read_token(&pixels, w, h, placement), Some(LatencyToken { sequence: 0 }));
+        assert_eq!(
+            read_token(&pixels, w, h, placement),
+            Some(LatencyToken { sequence: 0 })
+        );
     }
 
     #[test]
@@ -192,9 +224,11 @@ mod tests {
         let mut harness = LatencyHarness::new(1920, 32);
         let at = Instant::now();
         harness.on_send(LatencyToken { sequence: 7 }, at);
-        let latency = harness.on_receive(LatencyToken { sequence: 7 }, at + Duration::from_millis(12));
+        let latency =
+            harness.on_receive(LatencyToken { sequence: 7 }, at + Duration::from_millis(12));
         assert_eq!(latency.map(|d| d.as_millis()), Some(12));
-        assert!(harness.on_receive(LatencyToken { sequence: 9 }, at).is_none());
+        assert!(harness
+            .on_receive(LatencyToken { sequence: 9 }, at)
+            .is_none());
     }
 }
-

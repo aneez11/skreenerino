@@ -82,7 +82,10 @@ pub fn select_encoder() -> Result<EncoderSelection> {
     for kind in candidate_backends() {
         rejected.push((kind, "driver bindings not implemented".to_string()));
     }
-    Ok(EncoderSelection { chosen: EncoderKind::Software, rejected })
+    Ok(EncoderSelection {
+        chosen: EncoderKind::Software,
+        rejected,
+    })
 }
 
 #[cfg(test)]

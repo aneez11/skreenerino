@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FrameFragment {
@@ -18,11 +18,20 @@ pub struct Fragmenter {
 
 impl Fragmenter {
     pub fn new(max_payload: usize) -> Self {
-        Self { max_payload: max_payload.max(1) }
+        Self {
+            max_payload: max_payload.max(1),
+        }
     }
 
-    pub fn fragment(&self, stream: &str, sequence: u64, timestamp_us: u64, keyframe: bool, data: &[u8]) -> Vec<FrameFragment> {
-        let count = (data.len().max(1) + self.max_payload - 1) / self.max_payload;
+    pub fn fragment(
+        &self,
+        stream: &str,
+        sequence: u64,
+        timestamp_us: u64,
+        keyframe: bool,
+        data: &[u8],
+    ) -> Vec<FrameFragment> {
+        let count = data.len().max(1).div_ceil(self.max_payload);
         let mut out = Vec::with_capacity(count);
         for (i, chunk) in data.chunks(self.max_payload).enumerate() {
             out.push(FrameFragment {
@@ -36,7 +45,15 @@ impl Fragmenter {
             });
         }
         if data.is_empty() {
-            out.push(FrameFragment { stream: stream.to_string(), sequence, timestamp_us, keyframe, fragment_index: 0, fragment_count: 1, payload: vec![] });
+            out.push(FrameFragment {
+                stream: stream.to_string(),
+                sequence,
+                timestamp_us,
+                keyframe,
+                fragment_index: 0,
+                fragment_count: 1,
+                payload: vec![],
+            });
         }
         out
     }
@@ -50,15 +67,24 @@ pub struct Reassembler {
 impl Reassembler {
     pub fn push(&mut self, frag: FrameFragment) -> Option<Vec<u8>> {
         let key = (frag.stream.clone(), frag.sequence);
-        let entry = self.pending.entry(key.clone()).or_insert_with(|| vec![None; frag.fragment_count as usize]);
-        if entry.len() != frag.fragment_count as usize { return None; }
+        let entry = self
+            .pending
+            .entry(key.clone())
+            .or_insert_with(|| vec![None; frag.fragment_count as usize]);
+        if entry.len() != frag.fragment_count as usize {
+            return None;
+        }
         let idx = frag.fragment_index as usize;
-        if idx >= entry.len() { return None; }
+        if idx >= entry.len() {
+            return None;
+        }
         entry[idx] = Some(frag.payload);
         if entry.iter().all(|p| p.is_some()) {
             let parts = self.pending.remove(&key).unwrap();
             let mut out = Vec::new();
-            for p in parts { out.extend_from_slice(&p.unwrap()); }
+            for p in parts {
+                out.extend_from_slice(&p.unwrap());
+            }
             return Some(out);
         }
         None
@@ -74,7 +100,9 @@ mod tests {
         let frags = f.fragment("s", 1, 10, true, b"abcdefg");
         let mut r = Reassembler::default();
         let mut done = None;
-        for frag in frags { done = r.push(frag).or(done); }
+        for frag in frags {
+            done = r.push(frag).or(done);
+        }
         assert_eq!(done.unwrap(), b"abcdefg");
     }
 }

@@ -1,4 +1,4 @@
-﻿pub mod control;
+pub mod control;
 pub mod jitter;
 pub mod quality;
 pub mod retransmit;
@@ -35,7 +35,9 @@ pub mod quic {
             .with_no_client_auth()
             .with_single_cert(
                 vec![rustls::pki_types::CertificateDer::from(cert_der)],
-                rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(key_der)),
+                rustls::pki_types::PrivateKeyDer::Pkcs8(
+                    rustls::pki_types::PrivatePkcs8KeyDer::from(key_der),
+                ),
             )?;
         crypto.alpn_protocols = vec![ALPN.to_vec()];
         let crypto = quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?;
@@ -70,7 +72,8 @@ pub mod quic {
             _server_name: &rustls::pki_types::ServerName<'_>,
             _ocsp: &[u8],
             _now: rustls::pki_types::UnixTime,
-        ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        ) -> std::result::Result<rustls::client::danger::ServerCertVerified, rustls::Error>
+        {
             Ok(rustls::client::danger::ServerCertVerified::assertion())
         }
 
@@ -79,7 +82,8 @@ pub mod quic {
             _message: &[u8],
             _cert: &rustls::pki_types::CertificateDer<'_>,
             _dss: &rustls::DigitallySignedStruct,
-        ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error>
+        {
             Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
         }
 
@@ -88,7 +92,8 @@ pub mod quic {
             _message: &[u8],
             _cert: &rustls::pki_types::CertificateDer<'_>,
             _dss: &rustls::DigitallySignedStruct,
-        ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        ) -> std::result::Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error>
+        {
             Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
         }
 
@@ -112,14 +117,18 @@ pub mod quic {
             Ok(Self { endpoint, addr })
         }
 
-        pub fn local_addr(&self) -> SocketAddr { self.addr }
+        pub fn local_addr(&self) -> SocketAddr {
+            self.addr
+        }
 
         pub async fn accept(&self) -> Result<Connection> {
             let incoming = self.endpoint.accept().await.context("endpoint closed")?;
             Ok(incoming.await?)
         }
 
-        pub fn close(&self) { self.endpoint.close(0u32.into(), b"shutdown"); }
+        pub fn close(&self) {
+            self.endpoint.close(0u32.into(), b"shutdown");
+        }
     }
 
     pub async fn connect(addr: SocketAddr) -> Result<Connection> {
@@ -142,10 +151,3 @@ pub mod quic {
         Ok(conn.read_datagram().await?)
     }
 }
-
-
-
-
-
-
-

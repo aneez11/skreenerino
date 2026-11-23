@@ -96,7 +96,10 @@ impl Relay {
 /// upstream source; all others are viewers.
 pub async fn run_relay(bind: std::net::SocketAddr) -> Result<()> {
     let server = quic::QuicServer::bind(bind).await?;
-    println!("relay listening on {} (ctrl-c to stop)", server.local_addr());
+    println!(
+        "relay listening on {} (ctrl-c to stop)",
+        server.local_addr()
+    );
     let relay = Arc::new(Relay::new(256));
     let mut have_presenter = false;
 

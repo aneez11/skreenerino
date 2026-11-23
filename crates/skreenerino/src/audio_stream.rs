@@ -1,4 +1,4 @@
-﻿//! Audio capture -> Opus -> datagram thread, mirrored on the viewer side.
+//! Audio capture -> Opus -> datagram thread, mirrored on the viewer side.
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -37,7 +37,9 @@ pub fn spawn_sender(
             let mut sequence = 0u64;
 
             while !stop.load(Ordering::Relaxed) {
-                let Some(frame) = source.next_frame()? else { continue };
+                let Some(frame) = source.next_frame()? else {
+                    continue;
+                };
                 let opus = encoder.encode(&frame.pcm)?;
                 let datagram = AudioDatagram {
                     stream: stream.clone(),
@@ -77,7 +79,9 @@ pub fn capture_into_broadcast(
     let mut sequence = 0u64;
 
     while !stop.load(Ordering::Relaxed) {
-        let Some(frame) = source.next_frame()? else { continue };
+        let Some(frame) = source.next_frame()? else {
+            continue;
+        };
         let opus = encoder.encode(&frame.pcm)?;
         let datagram = AudioDatagram {
             stream: "mic".into(),
@@ -119,7 +123,9 @@ impl AudioReceiver {
         self.decoder.decode(&datagram.opus)
     }
 
-    pub fn frame_samples() -> usize { FRAME_SAMPLES }
+    pub fn frame_samples() -> usize {
+        FRAME_SAMPLES
+    }
 }
 
 /// Rough playout estimate used by tests and diagnostics: total audio duration
@@ -163,8 +169,10 @@ mod tests {
         let mut encoder = OpusTalkEncoder::new().unwrap();
         let pcm = vec![0i16; FRAME_SAMPLES];
         let opus = encoder.encode(&pcm).unwrap();
-        assert!(opus.len() < FRAME_SAMPLES * 2 / 4, "opus {} bytes", opus.len());
+        assert!(
+            opus.len() < FRAME_SAMPLES * 2 / 4,
+            "opus {} bytes",
+            opus.len()
+        );
     }
 }
-
-

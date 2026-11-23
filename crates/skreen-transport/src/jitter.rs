@@ -1,4 +1,4 @@
-﻿use std::collections::BTreeMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone)]
 pub struct JitterEntry<T> {
@@ -16,14 +16,25 @@ pub struct JitterBuffer<T> {
 
 impl<T> JitterBuffer<T> {
     pub fn new(max_latency_us: u64) -> Self {
-        Self { max_latency_us, next_expected: 0, started: false, entries: BTreeMap::new() }
+        Self {
+            max_latency_us,
+            next_expected: 0,
+            started: false,
+            entries: BTreeMap::new(),
+        }
     }
 
     pub fn push(&mut self, sequence: u64, timestamp_us: u64, value: T) {
         if self.started && sequence < self.next_expected {
             return;
         }
-        self.entries.insert(sequence, JitterEntry { timestamp_us, value });
+        self.entries.insert(
+            sequence,
+            JitterEntry {
+                timestamp_us,
+                value,
+            },
+        );
     }
 
     pub fn pop_ready(&mut self, now_us: u64) -> Option<JitterEntry<T>> {
@@ -47,8 +58,12 @@ impl<T> JitterBuffer<T> {
         }
     }
 
-    pub fn len(&self) -> usize { self.entries.len() }
-    pub fn is_empty(&self) -> bool { self.entries.is_empty() }
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
 }
 
 #[cfg(test)]

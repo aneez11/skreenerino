@@ -1,4 +1,4 @@
-﻿use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 pub mod fragment;
 pub mod latency;
@@ -33,22 +33,67 @@ pub struct Capabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ControlMessage {
-    Hello { version: u16, device: DeviceId, caps: Capabilities },
-    RoomJoin { room: RoomId, passcode: Option<String> },
-    RoomLeave { room: RoomId },
-    PresentRequest { room: RoomId, stream: StreamId },
-    ViewRequest { room: RoomId, stream: StreamId },
-    Offer { stream: StreamId, codec: String, width: u32, height: u32, fps: u32 },
-    Accept { stream: StreamId },
-    Reject { stream: StreamId, reason: String },
-    StreamStart { stream: StreamId },
-    StreamStop { stream: StreamId },
-    KeyframeRequest { stream: StreamId },
+    Hello {
+        version: u16,
+        device: DeviceId,
+        caps: Capabilities,
+    },
+    RoomJoin {
+        room: RoomId,
+        passcode: Option<String>,
+    },
+    RoomLeave {
+        room: RoomId,
+    },
+    PresentRequest {
+        room: RoomId,
+        stream: StreamId,
+    },
+    ViewRequest {
+        room: RoomId,
+        stream: StreamId,
+    },
+    Offer {
+        stream: StreamId,
+        codec: String,
+        width: u32,
+        height: u32,
+        fps: u32,
+    },
+    Accept {
+        stream: StreamId,
+    },
+    Reject {
+        stream: StreamId,
+        reason: String,
+    },
+    StreamStart {
+        stream: StreamId,
+    },
+    StreamStop {
+        stream: StreamId,
+    },
+    KeyframeRequest {
+        stream: StreamId,
+    },
     /// Request retransmission of specific fragments (NACK).
-    Nack { stream: StreamId, sequences: Vec<u64> },
-    QualityReport { stream: StreamId, rtt_ms: u32, loss_permille: u32, decode_ms: u32 },
-    RoleChange { device: DeviceId, role: Role },
-    Heartbeat { ts_ms: u64 },
+    Nack {
+        stream: StreamId,
+        sequences: Vec<u64>,
+    },
+    QualityReport {
+        stream: StreamId,
+        rtt_ms: u32,
+        loss_permille: u32,
+        decode_ms: u32,
+    },
+    RoleChange {
+        device: DeviceId,
+        role: Role,
+    },
+    Heartbeat {
+        ts_ms: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,7 +121,3 @@ pub fn encode_control(msg: &ControlMessage) -> Result<Vec<u8>, ProtoError> {
 pub fn decode_control(bytes: &[u8]) -> Result<ControlMessage, ProtoError> {
     Ok(postcard::from_bytes(bytes)?)
 }
-
-
-
-

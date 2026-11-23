@@ -1,4 +1,4 @@
-﻿use anyhow::Result;
+use anyhow::Result;
 #[cfg(all(feature = "xcap", feature = "h264"))]
 use skreen_capture::{xcap_backend::XcapCapturer, ScreenCapturer};
 #[cfg(all(feature = "xcap", feature = "h264"))]
@@ -10,7 +10,9 @@ pub fn run(output: &str, frames: u32, bitrate: u32) -> Result<()> {
     {
         let mut capturer = XcapCapturer::primary()?;
         capturer.start()?;
-        let first = capturer.next_frame()?.ok_or_else(|| anyhow::anyhow!("no frames captured"))?;
+        let first = capturer
+            .next_frame()?
+            .ok_or_else(|| anyhow::anyhow!("no frames captured"))?;
         let mut encoder = OpenH264Encoder::new(first.width, first.height, bitrate)?;
         let mut file = std::fs::File::create(output)?;
         let mut written = 0u64;
@@ -19,8 +21,12 @@ pub fn run(output: &str, frames: u32, bitrate: u32) -> Result<()> {
         let started = std::time::Instant::now();
 
         while count < frames {
-            let Some(frame) = next_frame.take() else { break };
-            for packet in encoder.encode(&frame.rgba, frame.width, frame.height, frame.timestamp_us)? {
+            let Some(frame) = next_frame.take() else {
+                break;
+            };
+            for packet in
+                encoder.encode(&frame.rgba, frame.width, frame.height, frame.timestamp_us)?
+            {
                 file.write_all(&packet.bytes)?;
                 written += packet.bytes.len() as u64;
             }

@@ -1,4 +1,4 @@
-﻿//! Offline latency harness: capture, stamp a token, encode, decode, and compare
+//! Offline latency harness: capture, stamp a token, encode, decode, and compare
 //! encode/decode round-trip cost without any network hop.
 
 use anyhow::Result;
@@ -41,7 +41,9 @@ pub fn run(frames: u32, bitrate: u32) -> Result<()> {
             if let Some(decoded) = decoder.decode(&packet.bytes)? {
                 let decode_elapsed = decode_start.elapsed();
                 decode_us.push(decode_elapsed);
-                if let Some(read) = read_token(&decoded.rgba, decoded.width, decoded.height, placement) {
+                if let Some(read) =
+                    read_token(&decoded.rgba, decoded.width, decoded.height, placement)
+                {
                     if let Some(latency) = harness.on_receive(read, Instant::now()) {
                         latencies.push(latency);
                     }
@@ -66,7 +68,9 @@ pub fn run(frames: u32, bitrate: u32) -> Result<()> {
             report.min_ms, report.mean_ms, report.p95_ms, report.max_ms
         );
     } else {
-        println!("no token samples recovered; the decoder output did not preserve the token blocks");
+        println!(
+            "no token samples recovered; the decoder output did not preserve the token blocks"
+        );
     }
     summarize("encode", &encode_us);
     summarize("decode", &decode_us);
@@ -81,11 +85,12 @@ fn summarize(label: &str, samples: &[Duration]) {
     let mean = total.as_secs_f64() * 1000.0 / samples.len() as f64;
     let mut sorted: Vec<f64> = samples.iter().map(|d| d.as_secs_f64() * 1000.0).collect();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let p95_idx = ((sorted.len() as f64 * 0.95).ceil() as usize).saturating_sub(1).min(sorted.len() - 1);
+    let p95_idx = ((sorted.len() as f64 * 0.95).ceil() as usize)
+        .saturating_sub(1)
+        .min(sorted.len() - 1);
     println!(
         "{label}: mean {mean:.2} ms, p95 {:.2} ms ({} samples)",
         sorted[p95_idx],
         samples.len()
     );
 }
-

@@ -29,7 +29,9 @@ impl NackScheduler {
         self.tracker.record(sequence);
     }
 
-    pub fn highest(&self) -> u64 { self.highest_seen }
+    pub fn highest(&self) -> u64 {
+        self.highest_seen
+    }
 
     /// Sequences worth requesting now, if the debounce interval has elapsed.
     pub fn poll(&mut self, now: Instant) -> Vec<u64> {

@@ -38,7 +38,11 @@ const PAGE: &str = r#"<!DOCTYPE html>
 </html>
 "#;
 
-pub async fn run(bind: std::net::SocketAddr, frames: SharedJpeg, stats: Arc<GatewayStats>) -> Result<()> {
+pub async fn run(
+    bind: std::net::SocketAddr,
+    frames: SharedJpeg,
+    stats: Arc<GatewayStats>,
+) -> Result<()> {
     let listener = TcpListener::bind(bind).await?;
     println!("browser gateway on http://{}/", listener.local_addr()?);
     println!("  open that URL from any device on the LAN");
