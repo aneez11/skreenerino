@@ -44,7 +44,7 @@ capture, Linux portal capture, iOS/Android) remain scaffolding behind clear erro
 | Audio over the wire | Room `--audio` streams one capture to all viewers; viewer decodes and plays through cpal |
 | NACK retransmission | Implemented end to end over a duplex control stream: viewer detects gaps, presenter resends from a bounded buffer |
 | Adaptive bitrate | Closed loop verified: measured decode_ms (132–175 ms, debug) drove High→Medium→Low; encoder rebuilt per tier |
-| Consent UI | Gate logic exists; no on-screen prompt |
+| Consent UI | Gate logic exists; no on-screen prompt (planned: `docs/gui-plan.md`) |
 | Android/iOS clients | Not started |
 | On-device target validation | Needs a second machine and real LAN conditions |
 
@@ -58,6 +58,7 @@ $env:USERPROFILE\.cargo\bin\cargo.exe test --workspace
 ```
 
 See `docs/benchmarks.md` for measured latency and throughput numbers.
+
 
 
 
