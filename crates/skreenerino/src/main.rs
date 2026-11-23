@@ -1,4 +1,5 @@
-﻿mod spike;
+﻿mod room;
+mod spike;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -52,6 +53,9 @@ enum Commands {
         /// Room name advertised alongside this presenter
         #[arg(long)]
         room: Option<String>,
+        /// Keep accepting viewers until Ctrl-C instead of exiting after one
+        #[arg(long, default_value_t = false)]
+        multi: bool,
     },
     /// Receive a stream over QUIC, decode it, and report statistics
     Watch {
@@ -75,7 +79,7 @@ async fn main() -> Result<()> {
         Commands::Join { room, frames } => join(&room, frames).await,
         Commands::Discover => discover().await,
         Commands::Spike { output, frames, bitrate } => spike::run(&output, frames, bitrate),
-        Commands::Serve { bind, bitrate, fps, name, room } => serve(bind, bitrate, fps, name, room).await,
+        Commands::Serve { bind, bitrate, fps, name, room, multi } => serve(bind, bitrate, fps, name, room, multi).await,
         Commands::Watch { addr, frames } => watch(addr, frames).await,
     }
 }
@@ -230,7 +234,14 @@ async fn stream_to(addr: SocketAddr, bitrate: u32, fps: u32) -> Result<()> {
     }
 }
 
-async fn serve(bind: SocketAddr, bitrate: u32, fps: u32, name: Option<String>, room: Option<String>) -> Result<()> {
+async fn serve(
+    bind: SocketAddr,
+    bitrate: u32,
+    fps: u32,
+    name: Option<String>,
+    room: Option<String>,
+    multi: bool,
+) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "xcap", feature = "h264"))]
     {
         let server = skreen_transport::quic::QuicServer::bind(bind).await?;
@@ -241,7 +252,7 @@ async fn serve(bind: SocketAddr, bitrate: u32, fps: u32, name: Option<String>, r
         let mut _discovery = {
             use skreen_discovery::DiscoveryService;
             let mut d = skreen_discovery::mdns::MdnsDiscovery::new()?;
-            let device = name.unwrap_or_else(default_device_name);
+            let device = name.clone().unwrap_or_else(default_device_name);
             let advertised_host = if local.ip().is_unspecified() {
                 local_display_host()
             } else {
@@ -260,6 +271,28 @@ async fn serve(bind: SocketAddr, bitrate: u32, fps: u32, name: Option<String>, r
             d
         };
 
+        if multi {
+            let cfg = room::RoomConfig {
+                bitrate,
+                fps,
+                name: name.clone().unwrap_or_else(default_device_name),
+            };
+            let shared = std::sync::Arc::new(room::RoomShared::new());
+            let stop = async {
+                let _ = tokio::signal::ctrl_c().await;
+                println!("shutting down room");
+            };
+            let room_name = room.unwrap_or_else(|| "default".into());
+            println!("room `{room_name}` accepting multiple viewers (ctrl-c to stop)");
+            let result = room::run_room(server, cfg, shared, stop).await;
+            #[cfg(feature = "mdns")]
+            {
+                use skreen_discovery::DiscoveryService;
+                let _ = _discovery.shutdown();
+            }
+            return result;
+        }
+
         let conn = server.accept().await?;
         println!("viewer connected: {}", conn.remote_address());
         let result = presenter::run(conn, presenter::PresenterConfig { bitrate, fps }).await;
@@ -273,7 +306,7 @@ async fn serve(bind: SocketAddr, bitrate: u32, fps: u32, name: Option<String>, r
     }
     #[cfg(not(all(feature = "quic", feature = "xcap", feature = "h264")))]
     {
-        let _ = (bind, bitrate, fps, name, room);
+        let _ = (bind, bitrate, fps, name, room, multi);
         anyhow::bail!("serve requires the quic, xcap and h264 features")
     }
 }
@@ -452,6 +485,10 @@ async fn join(room: &str, frames: u32) -> Result<()> {
     println!("joining {} at {}", peer.device.0, addr);
     watch(addr, frames).await
 }
+
+
+
+
 
 
 

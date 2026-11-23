@@ -1,4 +1,5 @@
 ﻿pub mod jitter;
+pub mod quality;
 
 use anyhow::Result;
 use bytes::Bytes;
@@ -95,6 +96,7 @@ pub mod quic {
         }
     }
 
+    #[derive(Clone)]
     pub struct QuicServer {
         endpoint: Endpoint,
         addr: SocketAddr,
@@ -137,5 +139,7 @@ pub mod quic {
         Ok(conn.read_datagram().await?)
     }
 }
+
+
 
 
