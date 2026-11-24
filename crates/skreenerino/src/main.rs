@@ -401,6 +401,7 @@ async fn serve(
                 audio: room_audio,
                 scale,
                 monitor,
+                require_approval: false,
             };
             let shared = std::sync::Arc::new(room::RoomShared::new());
             let stop = async {

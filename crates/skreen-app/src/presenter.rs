@@ -1,4 +1,4 @@
-//! One-to-many presenter: capture and encode once on a dedicated thread, fan out
+﻿//! One-to-many presenter: capture and encode once on a dedicated thread, fan out
 //! the encoded packets to every connected viewer.
 
 #[cfg(feature = "audio")]
@@ -27,6 +27,9 @@ pub struct RoomConfig {
     pub scale: f32,
     /// Platform monitor id to capture; `None` means the primary display.
     pub monitor: Option<u32>,
+    /// Require host approval before a viewer receives frames. The GUI enables
+    /// this; the CLI leaves it off because there is no UI to answer a prompt.
+    pub require_approval: bool,
 }
 
 #[derive(Default)]
@@ -44,6 +47,10 @@ pub struct RoomShared {
     pub idle_frames: Arc<AtomicU64>,
     /// Most recent receiver quality report, if any.
     pub latest_report: Arc<std::sync::RwLock<Option<skreen_transport::quality::QualityReport>>>,
+    /// Remote addresses that asked to connect, awaiting the host's decision.
+    pub join_requests: Arc<std::sync::Mutex<Vec<String>>>,
+    /// Remote addresses the host approved, allowed to receive frames.
+    pub approved: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 
 impl RoomShared {
@@ -54,6 +61,8 @@ impl RoomShared {
             stop: Arc::new(AtomicBool::new(false)),
             idle_frames: Arc::new(AtomicU64::new(0)),
             latest_report: Arc::new(std::sync::RwLock::new(None)),
+            join_requests: Arc::new(std::sync::Mutex::new(Vec::new())),
+            approved: Arc::new(std::sync::Mutex::new(std::collections::HashSet::new())),
         }
     }
 
@@ -73,6 +82,46 @@ impl RoomShared {
             .write()
             .ok()
             .and_then(|mut slot| slot.take())
+    }
+    /// Record that `peer` wants to connect; the UI decides whether to allow it.
+    pub fn request_join(&self, peer: String) {
+        if self.is_approved(&peer) {
+            return;
+        }
+        if let Ok(mut pending) = self.join_requests.lock() {
+            if !pending.iter().any(|p| p == &peer) {
+                pending.push(peer);
+            }
+        }
+    }
+
+    pub fn is_approved(&self, peer: &str) -> bool {
+        self.approved
+            .lock()
+            .map(|a| a.contains(peer))
+            .unwrap_or(false)
+    }
+
+    pub fn approve(&self, peer: &str) {
+        if let Ok(mut approved) = self.approved.lock() {
+            approved.insert(peer.to_string());
+        }
+        if let Ok(mut pending) = self.join_requests.lock() {
+            pending.retain(|p| p != peer);
+        }
+    }
+
+    pub fn deny(&self, peer: &str) {
+        if let Ok(mut pending) = self.join_requests.lock() {
+            pending.retain(|p| p != peer);
+        }
+    }
+
+    pub fn take_join_requests(&self) -> Vec<String> {
+        self.join_requests
+            .lock()
+            .map(|mut pending| std::mem::take(&mut *pending))
+            .unwrap_or_default()
     }
 }
 
@@ -98,6 +147,7 @@ where
 
     #[cfg(feature = "audio")]
     let wants_audio = cfg.audio;
+    let require_approval = cfg.require_approval;
 
     let encoder = {
         let tx = packet_tx.clone();
@@ -134,6 +184,28 @@ where
             loop {
                 match server.accept().await {
                     Ok(conn) => {
+                        // Consent gate: hold the stream until the host approves.
+                        let peer = conn.remote_address().to_string();
+                        if require_approval && !shared.is_approved(&peer) {
+                            tracing::info!(%peer, "viewer waiting for approval");
+                            shared.request_join(peer);
+                            // Let the host decide, then continue or hang up.
+                            let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+                            while tokio::time::Instant::now() < deadline {
+                                if shared.is_approved(&conn.remote_address().to_string()) {
+                                    break;
+                                }
+                                if conn.close_reason().is_some() {
+                                    break;
+                                }
+                                tokio::time::sleep(Duration::from_millis(100)).await;
+                            }
+                            if !shared.is_approved(&conn.remote_address().to_string()) {
+                                tracing::info!(peer = %conn.remote_address(), "viewer not approved; closing");
+                                conn.close(0u32.into(), b"denied");
+                                continue;
+                            }
+                        }
                         tracing::info!(peer = %conn.remote_address(), "viewer connected");
                         shared.stats.viewers.fetch_add(1, Ordering::Relaxed);
                         shared.request_keyframe();

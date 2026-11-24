@@ -24,6 +24,9 @@ pub fn draw(
     if app.confirm_exit() {
         confirm_exit(ctx, app, p, commands);
     }
+    if app.pending_consent().is_some() {
+        consent_request(ctx, app, p, commands);
+    }
 }
 
 /// Common dialog chrome: title row with a close button and a card body.
@@ -494,5 +497,99 @@ mod tests {
         assert!(CONTROL_H > 20.0);
         let _ = NavPage::About;
         let _ = Color32::WHITE;
+    }
+}
+/// "Alice wants to view your screen" - the consent prompt from the mockup.
+fn consent_request(
+    ctx: &egui::Context,
+    app: &mut crate::app::App,
+    p: &Palette,
+    commands: &mut Vec<UiCommand>,
+) {
+    let Some((requester, kind)) = app.pending_consent().map(|r| (r.requester.clone(), r.kind))
+    else {
+        return;
+    };
+    let mut remember = app.consent_remember();
+    let mut accept = false;
+    let mut reject = false;
+
+    egui::Window::new("consent")
+        .collapsible(false)
+        .resizable(false)
+        .title_bar(false)
+        .default_width(360.0)
+        .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+        .frame(
+            egui::Frame::new()
+                .fill(p.surface())
+                .stroke(egui::Stroke::new(1.0, p.stroke()))
+                .corner_radius(p.card_radius())
+                .inner_margin(egui::Margin::same(18)),
+        )
+        .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(Vec2::splat(22.0), Sense::hover());
+                icons::draw(ui.painter(), rect.shrink(3.0), Icon::Monitor, p.accent());
+                ui.label(
+                    RichText::new(match kind {
+                        skreen_security::ConsentKind::Pull => "View Request",
+                        skreen_security::ConsentKind::Push => "Share Request",
+                    })
+                    .size(15.0)
+                    .strong()
+                    .color(p.text()),
+                );
+            });
+            ui.add_space(10.0);
+            ui.label(
+                RichText::new(match kind {
+                    skreen_security::ConsentKind::Pull => {
+                        format!("{requester} wants to view your screen")
+                    }
+                    skreen_security::ConsentKind::Push => {
+                        format!("{requester} wants to send you their screen")
+                    }
+                })
+                .size(13.0)
+                .color(p.text()),
+            );
+            ui.add_space(12.0);
+            ui.horizontal(|ui| {
+                widgets::toggle(ui, p, &mut remember);
+                ui.label(
+                    RichText::new("Always allow this device")
+                        .size(12.0)
+                        .color(p.muted()),
+                );
+            });
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                if widgets::button(ui, p, ButtonKind::Secondary, "Reject").clicked() {
+                    reject = true;
+                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if widgets::button(ui, p, ButtonKind::Primary, "Allow").clicked() {
+                        accept = true;
+                    }
+                });
+            });
+        });
+
+    app.set_consent_remember(remember);
+    if accept {
+        if let Some(requester) = app.answer_consent(true) {
+            commands.push(UiCommand::AnswerConsent {
+                requester,
+                accepted: true,
+            });
+        }
+    } else if reject {
+        if let Some(requester) = app.answer_consent(false) {
+            commands.push(UiCommand::AnswerConsent {
+                requester,
+                accepted: false,
+            });
+        }
     }
 }

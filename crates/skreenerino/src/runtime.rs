@@ -79,6 +79,20 @@ pub fn spawn_runtime(
                                 }
                             });
                         }
+                        UiCommand::AnswerConsent {
+                            requester,
+                            accepted,
+                        } => {
+                            if let Ok(slot) = ACTIVE_SHARE.lock() {
+                                if let Some(shared) = slot.as_ref() {
+                                    if accepted {
+                                        shared.approve(&requester);
+                                    } else {
+                                        shared.deny(&requester);
+                                    }
+                                }
+                            }
+                        }
                         UiCommand::Join { target } => {
                             if let Some(task) = current.take() {
                                 task.abort();
@@ -133,8 +147,17 @@ pub fn spawn_runtime(
                             let proxy_task = proxy_only.clone();
                             let proxy_done = proxy_only.clone();
                             current = Some(tokio::spawn(async move {
-                                match start_share(room, name, fps, bitrate, scale, audio, monitor)
-                                    .await
+                                match start_share(
+                                    room,
+                                    name,
+                                    fps,
+                                    bitrate,
+                                    scale,
+                                    audio,
+                                    monitor,
+                                    proxy_task.clone(),
+                                )
+                                .await
                                 {
                                     Ok(()) => {
                                         let _ = proxy_task.send_event(UiEvent::Ended);
@@ -186,6 +209,7 @@ async fn start_share(
     scale: f32,
     audio: bool,
     monitor: Option<u32>,
+    proxy: UiProxy,
 ) -> anyhow::Result<()> {
     let bind: std::net::SocketAddr = "0.0.0.0:7654".parse()?;
     let server = skreen_transport::quic::QuicServer::bind(bind).await?;
@@ -196,10 +220,29 @@ async fn start_share(
         audio,
         scale,
         monitor,
+        require_approval: true,
     };
     let shared = std::sync::Arc::new(skreen_app::presenter::RoomShared::new());
     let room_name = room.unwrap_or_else(|| "default".into());
     tracing::info!(room = %room_name, "sharing started");
+
+    // Surface pending join requests to the UI so the host can approve them.
+    let watch = shared.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            for peer in watch.take_join_requests() {
+                let _ = proxy.send_event(UiEvent::ConsentRequested {
+                    requester: peer,
+                    kind: skreen_security::ConsentKind::Pull,
+                });
+            }
+        }
+    });
+
     let stop = std::future::pending::<()>();
     skreen_app::presenter::run_room(server, cfg, shared, stop).await
 }
+/// The room currently being presented, if any, so consent decisions can reach it.
+static ACTIVE_SHARE: std::sync::Mutex<Option<Arc<skreen_app::presenter::RoomShared>>> =
+    std::sync::Mutex::new(None);

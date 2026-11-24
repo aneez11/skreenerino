@@ -30,6 +30,11 @@ pub enum UiCommand {
     },
     /// Enumerate displays and capture preview thumbnails.
     ScanMonitors,
+    /// Answer a pending view request.
+    AnswerConsent {
+        requester: String,
+        accepted: bool,
+    },
     StartShare {
         room: Option<String>,
         name: Option<String>,
@@ -52,6 +57,11 @@ pub enum UiEvent {
     Wake,
     /// Enumerated displays with preview images.
     Monitors(Vec<MonitorChoice>),
+    /// Someone asked to view this screen and needs to be approved.
+    ConsentRequested {
+        requester: String,
+        kind: skreen_security::ConsentKind,
+    },
     Stats(ViewerStats),
     Peers(Vec<skreen_discovery::AdvertisedPeer>),
     Warning(String),
@@ -136,7 +146,15 @@ impl Gpu {
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             desired_maximum_frame_latency: 2,
-            alpha_mode: caps.alpha_modes[0],
+            // Prefer an opaque surface: egui composites premultiplied colours and
+            // an alpha-capable swapchain combined with a Mica backdrop produced a
+            // blank window here.
+            alpha_mode: caps
+                .alpha_modes
+                .iter()
+                .copied()
+                .find(|m| *m == wgpu::CompositeAlphaMode::Opaque)
+                .unwrap_or(caps.alpha_modes[0]),
             view_formats: vec![],
         };
         surface.configure(&device, &config);
@@ -265,6 +283,7 @@ impl Gpu {
         self.sync_texture_ids();
         let raw_input = self.egui_state.take_egui_input(window);
         let output = self.egui_ctx.run(raw_input, ui);
+
         self.egui_state
             .handle_platform_output(window, output.platform_output);
         let jobs = self
@@ -352,6 +371,9 @@ pub(crate) struct App {
     dropped: u64,
     /// Selected monitor, by platform id.
     share_monitor: u32,
+    /// Pending view request awaiting a decision, and the persistent allowlist.
+    consent: skreen_security::consent::ConsentGate,
+    consent_remember: bool,
     /// Enumerated monitors plus their thumbnails.
     monitors: Vec<MonitorChoice>,
     monitors_loading: bool,
@@ -407,7 +429,10 @@ impl ApplicationHandler<UiEvent> for App {
         match Gpu::new(window.clone()) {
             Ok(gpu) => {
                 self.gpu = Some(gpu);
-                self.window = Some(window);
+                self.window = Some(window.clone());
+                // Paint once immediately; with `ControlFlow::Wait` winit may not
+                // deliver an initial RedrawRequested, which shows a blank window.
+                window.request_redraw();
                 let _ = self.commands.try_send(UiCommand::Rescan);
             }
             Err(e) => {
@@ -438,6 +463,14 @@ impl ApplicationHandler<UiEvent> for App {
                     }
                 }
                 self.set_monitors(list);
+            }
+            UiEvent::ConsentRequested { requester, kind } => {
+                // Route through the security crate's gate so the allowlist rules apply.
+                let answer = self.consent.request(requester, kind);
+                if answer == skreen_security::Consent::Accepted {
+                    // Already allowlisted: nothing to ask.
+                    eprintln!("app: consent auto-accepted by allowlist");
+                }
             }
             UiEvent::Stats(stats) => self.stats = stats,
             UiEvent::Peers(peers) => self.home.set_peers(peers),
@@ -703,6 +736,30 @@ impl App {
     pub(crate) fn set_monitors_loading(&mut self, loading: bool) {
         self.monitors_loading = loading;
     }
+    pub(crate) fn pending_consent(&self) -> Option<&skreen_security::ConsentRequest> {
+        self.consent.pending()
+    }
+    pub(crate) fn consent_remember(&self) -> bool {
+        self.consent_remember
+    }
+    pub(crate) fn set_consent_remember(&mut self, remember: bool) {
+        self.consent_remember = remember;
+    }
+    /// Answer the pending request; `remember` adds the requester to the allowlist.
+    /// Returns the requester so the caller can forward the decision to the room.
+    pub(crate) fn answer_consent(&mut self, accepted: bool) -> Option<String> {
+        let remember = self.consent_remember;
+        let requester = self.consent.pending().map(|r| r.requester.clone());
+        let _ = self.consent.respond(accepted, remember);
+        self.consent_remember = false;
+        requester
+    }
+    pub(crate) fn allowed_requesters(&self) -> &[String] {
+        self.consent.allowlist()
+    }
+    pub(crate) fn revoke_consent(&mut self, requester: &str) {
+        self.consent.revoke(requester);
+    }
     pub(crate) fn stream_count(&self) -> usize {
         self.gpu.as_ref().map(|g| g.streams.len()).unwrap_or(0)
     }
@@ -780,6 +837,8 @@ pub fn run_app(after: Option<Duration>, initial_join: Option<String>) -> Result<
         encode_ms: 0.0,
         dropped: 0,
         share_monitor: 0,
+        consent: skreen_security::consent::ConsentGate::default(),
+        consent_remember: false,
         monitors: Vec::new(),
         monitors_loading: false,
         pair_code: "472961".into(),
@@ -823,6 +882,65 @@ pub fn quality_color(fps: f32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consent_gate_remembers_approval() {
+        use skreen_security::{Consent, ConsentKind};
+        let mut gate = skreen_security::consent::ConsentGate::default();
+
+        assert_eq!(
+            gate.request("10.0.0.9", ConsentKind::Pull),
+            Consent::Expired
+        );
+        assert!(gate.pending().is_some());
+
+        assert_eq!(gate.respond(true, true), Consent::Accepted);
+        assert!(gate.pending().is_none());
+
+        // A remembered device is accepted without prompting again.
+        assert_eq!(
+            gate.request("10.0.0.9", ConsentKind::Pull),
+            Consent::Accepted
+        );
+        assert_eq!(gate.allowlist(), &["10.0.0.9".to_string()]);
+
+        gate.revoke("10.0.0.9");
+        assert_eq!(
+            gate.request("10.0.0.9", ConsentKind::Pull),
+            Consent::Expired
+        );
+    }
+
+    #[test]
+    fn consent_rejection_is_not_remembered() {
+        use skreen_security::{Consent, ConsentKind};
+        let mut gate = skreen_security::consent::ConsentGate::default();
+        gate.request("10.0.0.7", ConsentKind::Pull);
+        assert_eq!(gate.respond(false, true), Consent::Rejected);
+        assert!(gate.allowlist().is_empty());
+        assert_eq!(
+            gate.request("10.0.0.7", ConsentKind::Pull),
+            Consent::Expired
+        );
+    }
+
+    #[test]
+    fn room_approval_gates_viewers() {
+        let shared = skreen_app::presenter::RoomShared::new();
+        assert!(!shared.is_approved("10.0.0.5:1234"));
+
+        shared.request_join("10.0.0.5:1234".to_string());
+        assert_eq!(
+            shared.take_join_requests(),
+            vec!["10.0.0.5:1234".to_string()]
+        );
+
+        shared.approve("10.0.0.5:1234");
+        assert!(shared.is_approved("10.0.0.5:1234"));
+
+        shared.deny("10.0.0.6:1234");
+        assert!(!shared.is_approved("10.0.0.6:1234"));
+    }
 
     #[test]
     fn elapsed_formatting() {

@@ -319,7 +319,7 @@ pub fn apply_window_effects(window: &winit::window::Window, dark: bool) {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (window, dark);
+        let _ = (window, dark, mica);
     }
 }
 
