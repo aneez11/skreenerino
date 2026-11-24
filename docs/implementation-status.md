@@ -90,4 +90,4 @@ tests. Screenshot capture of the wgpu surface fails on this host (PrintWindow
 returns a blank flip-model surface), so UI verification here is by test rather
 than by image.
 
-Tests: `cargo test --workspace` -> 76 passing; `-p skreenerino --features gui` -> 22.
+Tests: `cargo test --workspace` -> 74 passing; `-p skreenerino --features gui` -> 22.
