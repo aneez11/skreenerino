@@ -391,12 +391,14 @@ fn confirm_exit(
     });
 
     if closed || close || keep {
+        // "Keep sharing" / Cancel bring the window back from the tray.
         app.set_confirm_exit(false);
+        app.show_window();
     }
     if stop {
         commands.push(UiCommand::StopShare);
         app.set_confirm_exit(false);
-        app.set_screen(skreen_app::model::Screen::Home);
+        app.quit();
     }
 }
 

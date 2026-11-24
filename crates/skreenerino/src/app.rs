@@ -1,4 +1,4 @@
-//! The application window: Home screen (discover, manual join, start sharing) and
+﻿//! The application window: Home screen (discover, manual join, start sharing) and
 //! Meeting screen (video grid, control bar, participants, stats).
 //!
 //! Threading contract, from `docs/gui-plan.md`: this thread never blocks on I/O
@@ -62,6 +62,12 @@ pub enum UiEvent {
         requester: String,
         kind: skreen_security::ConsentKind,
     },
+    /// Tray menu: show the window.
+    TrayShow,
+    /// Tray menu: stop sharing and return home.
+    TrayStopSharing,
+    /// Tray menu: quit the app.
+    TrayExit,
     Stats(ViewerStats),
     Peers(Vec<skreen_discovery::AdvertisedPeer>),
     Warning(String),
@@ -371,7 +377,10 @@ pub(crate) struct App {
     dropped: u64,
     /// Selected monitor, by platform id.
     share_monitor: u32,
-    /// Pending view request awaiting a decision, and the persistent allowlist.
+    /// System tray icon while the app runs.
+    tray: Option<crate::tray::Tray>,
+    /// Event-loop proxy for dispatching tray selections.
+    proxy: UiProxy,
     consent: skreen_security::consent::ConsentGate,
     consent_remember: bool,
     /// Enumerated monitors plus their thumbnails.
@@ -430,6 +439,11 @@ impl ApplicationHandler<UiEvent> for App {
             Ok(gpu) => {
                 self.gpu = Some(gpu);
                 self.window = Some(window.clone());
+                // Tray icon: created once, on the main thread.
+                match crate::tray::Tray::install() {
+                    Ok(tray) => self.tray = Some(tray),
+                    Err(e) => tracing::warn!("tray icon unavailable: {e}"),
+                }
                 // Paint once immediately; with `ControlFlow::Wait` winit may not
                 // deliver an initial RedrawRequested, which shows a blank window.
                 window.request_redraw();
@@ -472,6 +486,22 @@ impl ApplicationHandler<UiEvent> for App {
                     eprintln!("app: consent auto-accepted by allowlist");
                 }
             }
+            UiEvent::TrayShow => {
+                if let Some(window) = &self.window {
+                    window.set_visible(true);
+                    window.set_minimized(false);
+                    window.focus_window();
+                }
+            }
+            UiEvent::TrayStopSharing => {
+                let _ = self.commands.try_send(UiCommand::StopShare);
+                self.sharing = false;
+                self.screen = Screen::Home;
+            }
+            UiEvent::TrayExit => {
+                let _ = self.commands.try_send(UiCommand::StopShare);
+                self.quit();
+            }
             UiEvent::Stats(stats) => self.stats = stats,
             UiEvent::Peers(peers) => self.home.set_peers(peers),
             UiEvent::Warning(text) => {
@@ -480,6 +510,9 @@ impl ApplicationHandler<UiEvent> for App {
             }
             UiEvent::Sharing(on) => {
                 self.sharing = on;
+                if let Some(tray) = &self.tray {
+                    tray.set_sharing(on);
+                }
                 if on {
                     self.screen = Screen::Meeting;
                 }
@@ -503,7 +536,17 @@ impl ApplicationHandler<UiEvent> for App {
             }
         }
         match event {
-            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::CloseRequested => {
+                // Sharing continues in the tray unless the user asked to quit.
+                if self.sharing && self.tray.is_some() && !self.should_quit {
+                    if let Some(window) = &self.window {
+                        window.set_visible(false);
+                    }
+                    self.set_confirm_exit(true);
+                } else {
+                    event_loop.exit();
+                }
+            }
             WindowEvent::Resized(size) => {
                 if let Some(gpu) = &mut self.gpu {
                     gpu.resize(size.width, size.height);
@@ -513,6 +556,14 @@ impl ApplicationHandler<UiEvent> for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                // Tray menu selections arrive on a receiver; drain them here.
+                while let Ok(event) = tray_icon::menu::MenuEvent::receiver().try_recv() {
+                    if let Some(tray) = &self.tray {
+                        if let Some(action) = tray.action_for(&event) {
+                            crate::tray::handle(action, &self.proxy);
+                        }
+                    }
+                }
                 while let Ok((key, frame)) = self.frames.try_recv() {
                     self.pending.insert(key, frame);
                 }
@@ -765,6 +816,17 @@ impl App {
     }
     pub(crate) fn quit(&mut self) {
         self.should_quit = true;
+        if let Some(window) = &self.window {
+            window.set_visible(true);
+        }
+    }
+    /// Bring the window back (used when cancelling a tray-close).
+    pub(crate) fn show_window(&mut self) {
+        if let Some(window) = &self.window {
+            window.set_visible(true);
+            window.set_minimized(false);
+            window.focus_window();
+        }
     }
 }
 
@@ -837,6 +899,8 @@ pub fn run_app(after: Option<Duration>, initial_join: Option<String>) -> Result<
         encode_ms: 0.0,
         dropped: 0,
         share_monitor: 0,
+        tray: None,
+        proxy: proxy.clone(),
         consent: skreen_security::consent::ConsentGate::default(),
         consent_remember: false,
         monitors: Vec::new(),

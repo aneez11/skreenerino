@@ -1,4 +1,4 @@
-﻿[package]
+[package]
 name = "skreenerino"
 version.workspace = true
 edition.workspace = true
@@ -12,7 +12,7 @@ h264 = ["skreen-codec/h264"]
 quic = ["skreen-transport/quic", "dep:quinn", "dep:rustls"]
 mdns = ["skreen-discovery/mdns"]
 viewer = ["skreen-render/wgpu", "dep:pollster"]
-gui = ["viewer", "skreen-render/gui", "dep:egui", "dep:egui-wgpu", "dep:egui-winit", "dep:wgpu", "dep:winit", "dep:pollster", "dep:raw-window-handle"]
+gui = ["viewer", "skreen-render/gui", "dep:egui", "dep:egui-wgpu", "dep:egui-winit", "dep:wgpu", "dep:winit", "dep:pollster", "dep:raw-window-handle", "dep:tray-icon"]
 audio = ["skreen-audio/native"]
 soak = []
 
@@ -41,6 +41,7 @@ egui-winit = { workspace = true, optional = true, default-features = false, feat
 wgpu = { workspace = true, optional = true }
 winit = { workspace = true, optional = true }
 raw-window-handle = { version = "0.6", optional = true }
+tray-icon = { version = "0.26", optional = true }
 skreen-audio.workspace = true
 image = { version = "0.25", default-features = false, features = ["jpeg"] }
 

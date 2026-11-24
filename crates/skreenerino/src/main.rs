@@ -15,6 +15,8 @@ mod screens;
 #[cfg(feature = "gui")]
 mod theme;
 #[cfg(feature = "gui")]
+mod tray;
+#[cfg(feature = "gui")]
 mod widgets;
 // nack + viewer now live in skreen-app
 mod relay;
