@@ -114,6 +114,9 @@ enum Commands {
         /// Also stream microphone audio (requires the `audio` feature)
         #[arg(long, default_value_t = false)]
         audio: bool,
+        /// Monitor id to share (default: primary display)
+        #[arg(long)]
+        monitor: Option<u32>,
         /// Encode at a fraction of native resolution (0.1-1.0)
         #[arg(long, default_value_t = 1.0)]
         scale: f32,
@@ -172,15 +175,16 @@ async fn main() -> Result<()> {
             multi,
             audio,
             scale,
-        } => serve(bind, bitrate, fps, name, room, multi, audio, scale).await,
+            monitor,
+        } => serve(bind, bitrate, fps, name, room, multi, audio, scale, monitor).await,
         Commands::Watch { addr, frames, gui } => watch(addr, frames, gui).await,
-        Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Soak { minutes } => soak::run(minutes),
         #[cfg(feature = "gui")]
         Commands::App { exit_after, join } => {
             let _ = rustls::crypto::ring::default_provider().install_default();
             app::run_app(exit_after.map(std::time::Duration::from_secs), join)
         }
+        Commands::WebView { bind, stream } => web_view(bind, stream).await,
         Commands::Wall { streams, frames } => wall(streams, frames).await,
         Commands::Relay { bind } => relay::run_relay(bind).await,
         Commands::Latency { frames, bitrate } => latency::run(frames, bitrate),
@@ -358,6 +362,7 @@ async fn serve(
     multi: bool,
     room_audio: bool,
     scale: f32,
+    monitor: Option<u32>,
 ) -> Result<()> {
     #[cfg(all(feature = "quic", feature = "xcap", feature = "h264"))]
     {
@@ -395,6 +400,7 @@ async fn serve(
                 name: name.clone().unwrap_or_else(default_device_name),
                 audio: room_audio,
                 scale,
+                monitor,
             };
             let shared = std::sync::Arc::new(room::RoomShared::new());
             let stop = async {
@@ -425,7 +431,9 @@ async fn serve(
     }
     #[cfg(not(all(feature = "quic", feature = "xcap", feature = "h264")))]
     {
-        let _ = (bind, bitrate, fps, name, room, multi, room_audio, scale);
+        let _ = (
+            bind, bitrate, fps, name, room, multi, room_audio, scale, monitor,
+        );
         anyhow::bail!("serve requires the quic, xcap and h264 features")
     }
 }

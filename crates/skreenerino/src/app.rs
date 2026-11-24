@@ -28,6 +28,8 @@ pub enum UiCommand {
     Join {
         target: String,
     },
+    /// Enumerate displays and capture preview thumbnails.
+    ScanMonitors,
     StartShare {
         room: Option<String>,
         name: Option<String>,
@@ -35,6 +37,8 @@ pub enum UiCommand {
         bitrate: u32,
         scale: f32,
         audio: bool,
+        /// Platform monitor id to capture.
+        monitor: Option<u32>,
     },
     StopShare,
     Leave,
@@ -44,7 +48,10 @@ pub enum UiCommand {
 /// Messages from the session runtime back to the UI thread.
 #[derive(Debug)]
 pub enum UiEvent {
-    Frames(Arc<RgbaFrame>, String),
+    /// A decoded frame is waiting in the bounded channel; repaint and drain it.
+    Wake,
+    /// Enumerated displays with preview images.
+    Monitors(Vec<MonitorChoice>),
     Stats(ViewerStats),
     Peers(Vec<skreen_discovery::AdvertisedPeer>),
     Warning(String),
@@ -63,22 +70,11 @@ pub struct UiSink {
 
 impl FrameSink for UiSink {
     fn push(&self, stream: &str, frame: RgbaFrame) {
-        let payload = (stream.to_string(), Arc::new(frame));
-        match self.tx.try_send(payload) {
-            Ok(()) => {}
-            Err(TrySendError::Full(_)) => {
-                // Dropping the newest frame keeps latency bounded; the next one
-                // arrives within a frame interval.
-                let _ = self.proxy.send_event(UiEvent::Frames(
-                    Arc::new(RgbaFrame {
-                        size: FrameSize {
-                            width: 0,
-                            height: 0,
-                        },
-                        pixels: Vec::new(),
-                    }),
-                    String::new(),
-                ));
+        // Newest-wins: if the UI is behind, drop this frame rather than queue it.
+        // Either way, wake the UI so it drains and uploads what it has.
+        match self.tx.try_send((stream.to_string(), Arc::new(frame))) {
+            Ok(()) | Err(TrySendError::Full(_)) => {
+                let _ = self.proxy.send_event(UiEvent::Wake);
             }
             Err(TrySendError::Disconnected(_)) => {}
         }
@@ -354,8 +350,32 @@ pub(crate) struct App {
     resolution: Option<(u32, u32)>,
     encode_ms: f32,
     dropped: u64,
-    share_monitor: usize,
+    /// Selected monitor, by platform id.
+    share_monitor: u32,
+    /// Enumerated monitors plus their thumbnails.
+    monitors: Vec<MonitorChoice>,
+    monitors_loading: bool,
     pair_code: String,
+}
+
+/// One row in the share picker: the display and a small preview texture.
+#[derive(Clone)]
+pub struct MonitorChoice {
+    pub info: skreen_capture::MonitorInfo,
+    /// Downscaled preview bytes, captured off the UI thread.
+    pub preview: Option<(Vec<u8>, u32, u32)>,
+    /// Preview texture, created once on the UI thread.
+    pub texture: Option<egui::TextureHandle>,
+}
+
+impl std::fmt::Debug for MonitorChoice {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MonitorChoice")
+            .field("id", &self.info.id)
+            .field("has_preview", &self.preview.is_some())
+            .field("has_texture", &self.texture.is_some())
+            .finish()
+    }
 }
 
 /// Which sidebar page is showing.
@@ -399,10 +419,25 @@ impl ApplicationHandler<UiEvent> for App {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UiEvent) {
         match event {
-            UiEvent::Frames(frame, stream) => {
-                if frame.size.width > 0 {
-                    self.pending.insert(stream, frame);
+            UiEvent::Wake => {}
+            UiEvent::Monitors(mut list) => {
+                // Build preview textures once, on the UI thread.
+                if let Some(gpu) = &self.gpu {
+                    for choice in &mut list {
+                        if let Some((pixels, width, height)) = choice.preview.take() {
+                            let image = egui::ColorImage::from_rgba_unmultiplied(
+                                [width as usize, height as usize],
+                                &pixels,
+                            );
+                            choice.texture = Some(gpu.egui_ctx.load_texture(
+                                format!("monitor-{}", choice.info.id),
+                                image,
+                                egui::TextureOptions::LINEAR,
+                            ));
+                        }
+                    }
                 }
+                self.set_monitors(list);
             }
             UiEvent::Stats(stats) => self.stats = stats,
             UiEvent::Peers(peers) => self.home.set_peers(peers),
@@ -640,11 +675,33 @@ impl App {
     pub(crate) fn resolution(&self) -> Option<(u32, u32)> {
         self.resolution
     }
-    pub(crate) fn share_monitor(&self) -> usize {
+    pub(crate) fn share_monitor(&self) -> u32 {
         self.share_monitor
     }
-    pub(crate) fn set_share_monitor(&mut self, index: usize) {
-        self.share_monitor = index;
+    pub(crate) fn set_share_monitor(&mut self, id: u32) {
+        self.share_monitor = id;
+    }
+    pub(crate) fn monitors(&self) -> &[MonitorChoice] {
+        &self.monitors
+    }
+    pub(crate) fn set_monitors(&mut self, list: Vec<MonitorChoice>) {
+        self.monitors = list;
+        self.monitors_loading = false;
+        if let Some(first) = self.monitors.first() {
+            if !self
+                .monitors
+                .iter()
+                .any(|m| m.info.id == self.share_monitor)
+            {
+                self.share_monitor = first.info.id;
+            }
+        }
+    }
+    pub(crate) fn monitors_loading(&self) -> bool {
+        self.monitors_loading
+    }
+    pub(crate) fn set_monitors_loading(&mut self, loading: bool) {
+        self.monitors_loading = loading;
     }
     pub(crate) fn stream_count(&self) -> usize {
         self.gpu.as_ref().map(|g| g.streams.len()).unwrap_or(0)
@@ -723,6 +780,8 @@ pub fn run_app(after: Option<Duration>, initial_join: Option<String>) -> Result<
         encode_ms: 0.0,
         dropped: 0,
         share_monitor: 0,
+        monitors: Vec::new(),
+        monitors_loading: false,
         pair_code: "472961".into(),
     };
     if let Some(target) = initial_join {

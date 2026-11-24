@@ -46,12 +46,13 @@ pub fn spawn_runtime(
 
             runtime.block_on(async move {
                 let mut current: Option<tokio::task::JoinHandle<()>> = None;
+                let proxy_only = proxy.clone();
                 let sink_for_join = sink;
 
                 while let Some(command) = cmd_rx.recv().await {
                     match command {
                         UiCommand::Rescan => {
-                            let proxy = proxy.clone();
+                            let proxy = proxy_only.clone();
                             tokio::task::spawn_blocking(move || {
                                 match skreen_app::discovery::browse_peers() {
                                     Ok(peers) => {
@@ -65,12 +66,25 @@ pub fn spawn_runtime(
                                 }
                             });
                         }
+                        UiCommand::ScanMonitors => {
+                            let proxy = proxy_only.clone();
+                            tokio::task::spawn_blocking(move || match scan_monitors() {
+                                Ok(list) => {
+                                    let _ = proxy.send_event(UiEvent::Monitors(list));
+                                }
+                                Err(e) => {
+                                    let _ = proxy.send_event(UiEvent::Warning(format!(
+                                        "monitor scan failed: {e}"
+                                    )));
+                                }
+                            });
+                        }
                         UiCommand::Join { target } => {
                             if let Some(task) = current.take() {
                                 task.abort();
                             }
                             let sink = sink_for_join.clone();
-                            let proxy = proxy.clone();
+                            let proxy = proxy_only.clone();
                             current = Some(tokio::spawn(async move {
                                 match skreen_app::discovery::resolve_target(&target) {
                                     Ok(addr) => {
@@ -104,8 +118,36 @@ pub fn spawn_runtime(
                                 }
                             }));
                         }
-                        UiCommand::StartShare { .. } => {
-                            let _ = proxy.send_event(UiEvent::Sharing(true));
+                        UiCommand::StartShare {
+                            room,
+                            name,
+                            fps,
+                            bitrate,
+                            scale,
+                            audio,
+                            monitor,
+                        } => {
+                            if let Some(task) = current.take() {
+                                task.abort();
+                            }
+                            let proxy_task = proxy_only.clone();
+                            let proxy_done = proxy_only.clone();
+                            current = Some(tokio::spawn(async move {
+                                match start_share(room, name, fps, bitrate, scale, audio, monitor)
+                                    .await
+                                {
+                                    Ok(()) => {
+                                        let _ = proxy_task.send_event(UiEvent::Ended);
+                                    }
+                                    Err(e) => {
+                                        let _ = proxy_task.send_event(UiEvent::Warning(format!(
+                                            "sharing failed: {e:#}"
+                                        )));
+                                        let _ = proxy_task.send_event(UiEvent::Ended);
+                                    }
+                                }
+                            }));
+                            let _ = proxy_done.send_event(UiEvent::Sharing(true));
                         }
                         UiCommand::StopShare | UiCommand::Leave => {
                             if let Some(task) = current.take() {
@@ -118,4 +160,46 @@ pub fn spawn_runtime(
             });
         })
         .ok();
+}
+/// Enumerate displays and grab a small preview of each.
+fn scan_monitors() -> anyhow::Result<Vec<crate::app::MonitorChoice>> {
+    let infos = skreen_capture::list_monitors()?;
+    let mut out = Vec::with_capacity(infos.len());
+    for (index, info) in infos.into_iter().enumerate() {
+        let preview = skreen_capture::monitor_thumbnail(index, 320)
+            .ok()
+            .map(|(bytes, width, height)| (bytes.to_vec(), width, height));
+        out.push(crate::app::MonitorChoice {
+            info,
+            preview,
+            texture: None,
+        });
+    }
+    Ok(out)
+}
+/// Bind a room and present the chosen monitor until the share is stopped.
+async fn start_share(
+    room: Option<String>,
+    name: Option<String>,
+    fps: u32,
+    bitrate: u32,
+    scale: f32,
+    audio: bool,
+    monitor: Option<u32>,
+) -> anyhow::Result<()> {
+    let bind: std::net::SocketAddr = "0.0.0.0:7654".parse()?;
+    let server = skreen_transport::quic::QuicServer::bind(bind).await?;
+    let cfg = skreen_app::presenter::RoomConfig {
+        bitrate,
+        fps,
+        name: name.unwrap_or_else(skreen_app::discovery::default_device_name),
+        audio,
+        scale,
+        monitor,
+    };
+    let shared = std::sync::Arc::new(skreen_app::presenter::RoomShared::new());
+    let room_name = room.unwrap_or_else(|| "default".into());
+    tracing::info!(room = %room_name, "sharing started");
+    let stop = std::future::pending::<()>();
+    skreen_app::presenter::run_room(server, cfg, shared, stop).await
 }

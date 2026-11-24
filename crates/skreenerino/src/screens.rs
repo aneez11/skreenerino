@@ -238,6 +238,11 @@ fn draw_home(
             });
 
             if start_share {
+                // Capture display previews the first time the picker opens.
+                if app.monitors().is_empty() {
+                    app.set_monitors_loading(true);
+                    commands.push(UiCommand::ScanMonitors);
+                }
                 app.set_share_picker(true);
             }
             if open_pair {

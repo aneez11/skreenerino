@@ -54,6 +54,8 @@ pub struct ShareOptions {
     pub scale: f32,
     pub audio: bool,
     pub bind: Option<std::net::SocketAddr>,
+    /// Platform monitor id to share; `None` means the primary display.
+    pub monitor: Option<u32>,
 }
 
 impl Default for ShareOptions {
@@ -65,6 +67,7 @@ impl Default for ShareOptions {
             bitrate: 4_000_000,
             scale: 1.0,
             audio: false,
+            monitor: None,
             bind: None,
         }
     }

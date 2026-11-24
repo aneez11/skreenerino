@@ -25,6 +25,8 @@ pub struct RoomConfig {
     pub audio: bool,
     /// Resolution scale applied before encoding (1.0 = native).
     pub scale: f32,
+    /// Platform monitor id to capture; `None` means the primary display.
+    pub monitor: Option<u32>,
 }
 
 #[derive(Default)]
@@ -347,7 +349,10 @@ fn encode_thread(
     cfg: RoomConfig,
     shared: Arc<RoomShared>,
 ) -> Result<()> {
-    let mut capturer = XcapCapturer::primary()?;
+    let mut capturer = match cfg.monitor {
+        Some(id) => XcapCapturer::by_id(id)?,
+        None => XcapCapturer::primary()?,
+    };
     capturer.start()?;
     let first = capturer
         .next_frame()?

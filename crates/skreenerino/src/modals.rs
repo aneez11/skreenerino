@@ -102,80 +102,131 @@ fn share_picker(
                 .color(p.text()),
         );
         ui.add_space(6.0);
+        // Snapshot the monitor list so the dialog can render without borrowing App
+        // mutably while drawing.
+        let monitors: Vec<(u32, String, String, Option<egui::TextureHandle>)> = app
+            .monitors()
+            .iter()
+            .map(|m| {
+                (
+                    m.info.id,
+                    m.info.label(),
+                    m.info.dimensions(),
+                    m.texture.clone(),
+                )
+            })
+            .collect();
+        let loading = app.monitors_loading();
 
-        // Two monitor thumbnails, as in the mockup.
-        ui.horizontal(|ui| {
-            for (index, label) in [(0usize, "Monitor 1"), (1usize, "Monitor 2")] {
-                let selected = chosen == index;
-                let (rect, response) =
-                    ui.allocate_exact_size(Vec2::new(190.0, 118.0), Sense::click());
-                ui.painter().rect(
-                    rect,
-                    p.card_radius(),
-                    p.surface_alt(),
-                    if selected {
-                        egui::Stroke::new(2.0, p.accent())
-                    } else {
-                        egui::Stroke::new(1.0, p.stroke())
-                    },
-                    egui::StrokeKind::Inside,
-                );
-                // Miniature "screen" content.
-                let inner = rect.shrink(10.0);
-                ui.painter().rect_filled(
-                    inner,
-                    egui::CornerRadius::same(4),
-                    if index == 0 {
-                        Color32::from_rgb(0x1E, 0x2A, 0x38)
-                    } else {
-                        Color32::from_rgb(0x2A, 0x38, 0x4A)
-                    },
-                );
-                for line in 0..5 {
-                    let y = inner.top() + 8.0 + line as f32 * 7.0;
-                    ui.painter().rect_filled(
-                        egui::Rect::from_min_size(
-                            egui::pos2(inner.left() + 8.0, y),
-                            Vec2::new(inner.width() * 0.6, 3.0),
-                        ),
-                        1.0,
-                        Color32::from_rgb(0x59, 0x8C, 0xC0),
-                    );
-                }
-                if selected {
-                    ui.painter().circle_filled(
-                        egui::pos2(rect.right() - 14.0, rect.top() + 14.0),
-                        8.0,
-                        p.accent(),
-                    );
-                    icons::draw(
-                        ui.painter(),
-                        egui::Rect::from_center_size(
-                            egui::pos2(rect.right() - 14.0, rect.top() + 14.0),
-                            Vec2::splat(11.0),
-                        ),
-                        Icon::Check,
-                        p.on_accent(),
-                    );
-                }
-                ui.painter().text(
-                    egui::pos2(rect.left(), rect.bottom() + 4.0),
-                    egui::Align2::LEFT_TOP,
-                    label,
-                    egui::FontId::proportional(12.0),
-                    p.text(),
-                );
-                ui.painter().text(
-                    egui::pos2(rect.left(), rect.bottom() + 19.0),
-                    egui::Align2::LEFT_TOP,
-                    "1920 x 1080",
-                    egui::FontId::proportional(10.5),
-                    p.muted(),
-                );
-                if response.clicked() {
-                    chosen = index;
-                }
+        let closed = dialog(ctx, p, "Share Picker", 430.0, |ui| {
+            ui.label(
+                RichText::new("Select a screen to share")
+                    .size(13.0)
+                    .strong()
+                    .color(p.text()),
+            );
+            ui.add_space(6.0);
+
+            if monitors.is_empty() {
+                let text = if loading {
+                    "Capturing displays..."
+                } else {
+                    "No displays detected. Close and reopen to rescan."
+                };
+                ui.label(RichText::new(text).size(12.0).color(p.muted()));
+                ui.add_space(8.0);
+            } else {
+                egui::ScrollArea::horizontal()
+                    .id_salt("monitors")
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            for (id, label, dims, texture) in &monitors {
+                                let selected = chosen == *id;
+                                let (rect, response) =
+                                    ui.allocate_exact_size(Vec2::new(190.0, 118.0), Sense::click());
+                                ui.painter().rect(
+                                    rect,
+                                    p.card_radius(),
+                                    p.surface_alt(),
+                                    if selected {
+                                        egui::Stroke::new(2.0, p.accent())
+                                    } else {
+                                        egui::Stroke::new(1.0, p.stroke())
+                                    },
+                                    egui::StrokeKind::Inside,
+                                );
+                                let inner = rect.shrink(6.0);
+                                match texture {
+                                    Some(tex) => {
+                                        // Letterbox the real preview inside the tile.
+                                        let size = tex.size_vec2();
+                                        let scale = (inner.width() / size.x)
+                                            .min(inner.height() / size.y)
+                                            .min(1.0);
+                                        let target = egui::Rect::from_center_size(
+                                            inner.center(),
+                                            size * scale,
+                                        );
+                                        ui.painter().image(
+                                            tex.id(),
+                                            target,
+                                            egui::Rect::from_min_max(
+                                                egui::pos2(0.0, 0.0),
+                                                egui::pos2(1.0, 1.0),
+                                            ),
+                                            Color32::WHITE,
+                                        );
+                                    }
+                                    None => {
+                                        icons::draw(
+                                            ui.painter(),
+                                            egui::Rect::from_center_size(
+                                                inner.center(),
+                                                Vec2::splat(32.0),
+                                            ),
+                                            Icon::Monitor,
+                                            p.faint(),
+                                        );
+                                    }
+                                }
+                                if selected {
+                                    ui.painter().circle_filled(
+                                        egui::pos2(rect.right() - 14.0, rect.top() + 14.0),
+                                        8.0,
+                                        p.accent(),
+                                    );
+                                    icons::draw(
+                                        ui.painter(),
+                                        egui::Rect::from_center_size(
+                                            egui::pos2(rect.right() - 14.0, rect.top() + 14.0),
+                                            Vec2::splat(11.0),
+                                        ),
+                                        Icon::Check,
+                                        p.on_accent(),
+                                    );
+                                }
+                                ui.painter().text(
+                                    egui::pos2(rect.left(), rect.bottom() + 4.0),
+                                    egui::Align2::LEFT_TOP,
+                                    label,
+                                    egui::FontId::proportional(12.0),
+                                    p.text(),
+                                );
+                                ui.painter().text(
+                                    egui::pos2(rect.left(), rect.bottom() + 19.0),
+                                    egui::Align2::LEFT_TOP,
+                                    dims,
+                                    egui::FontId::proportional(10.5),
+                                    p.muted(),
+                                );
+                                if response.clicked() {
+                                    chosen = *id;
+                                }
+                            }
+                        });
+                    });
             }
+            ui.add_space(26.0);
         });
         ui.add_space(26.0);
 
@@ -243,6 +294,7 @@ fn share_picker(
             bitrate: settings.bitrate,
             scale,
             audio,
+            monitor: Some(chosen),
         });
         app.set_share_picker(false);
         app.set_screen(skreen_app::model::Screen::Meeting);
