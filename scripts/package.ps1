@@ -21,7 +21,7 @@ try {
   $cargo = Join-Path $env:USERPROFILE ".cargo/bin/cargo.exe"
   if (-not (Test-Path $cargo)) { $cargo = "cargo" }
 
-  & $cargo build --release -p skreenerino
+  & $cargo build --release -p skreenerino --features gui
   if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
 
   $dist = Join-Path $root "dist"
