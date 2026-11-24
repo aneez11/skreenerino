@@ -76,8 +76,18 @@ Threading follows the plan: the UI thread never blocks, frames cross a bounded
 newest-wins channel, and commands reach tokio through a bridge thread (a blocking
 `recv()` inside `block_on` starved the session tasks and was fixed during M3).
 
-Not implemented from the mockup: the tray icon and menu, the "view request"
-consent dialog (the consent gate exists in `skreen-security` but has no UI yet),
-and a multi-monitor thumbnail capture (the picker shows placeholder thumbnails).
+All mockup elements are now implemented:
 
-Tests: `cargo test --workspace` -> 72 passing.
+| Feature | State |
+|---|---|
+| Monitor selection | Real enumeration via xcap; the picker shows live downscaled thumbnails and the presenter captures the chosen display (`serve --monitor <id>`) |
+| View-request consent | Dialog with Allow/Reject and "Always allow this device"; decisions route through `skreen-security`'s ConsentGate, and the presenter holds frames until approved. Settings lists and can revoke allowed devices |
+| System tray | Show Skreenerino / Stop Sharing / Exit, with tray-on-close ("stop sharing and exit" vs "keep sharing in tray") |
+
+Verified: `skreen-capture` reported `id=1630151031 name=\\.\DISPLAY2 1920x1080
+primary=true` and returned a 320x180 thumbnail; consent and tray menus have unit
+tests. Screenshot capture of the wgpu surface fails on this host (PrintWindow
+returns a blank flip-model surface), so UI verification here is by test rather
+than by image.
+
+Tests: `cargo test --workspace` -> 76 passing; `-p skreenerino --features gui` -> 22.
