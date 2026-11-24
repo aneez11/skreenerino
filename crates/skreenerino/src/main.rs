@@ -31,8 +31,25 @@ use std::net::SocketAddr;
 #[derive(Parser, Debug)]
 #[command(name = "skreenerino", about = "LAN screen projection", version)]
 struct Cli {
+    /// Omitted when the executable is launched directly (e.g. double-clicked),
+    /// in which case the desktop window opens.
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
+}
+
+/// Detach from the console that Windows creates for a double-clicked .exe, so
+/// only the application window remains. Harmless on other platforms.
+fn detach_console() {
+    #[cfg(target_os = "windows")]
+    {
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn FreeConsole() -> i32;
+        }
+        unsafe {
+            FreeConsole();
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -155,7 +172,25 @@ async fn main() -> Result<()> {
     #[cfg(feature = "quic")]
     let _ = rustls::crypto::ring::default_provider().install_default();
 
-    match Cli::parse().command {
+    let Some(command) = Cli::parse().command else {
+        // Launched with no arguments: open the desktop app.
+        #[cfg(feature = "gui")]
+        {
+            detach_console();
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            return app::run_app(None, None);
+        }
+        #[cfg(not(feature = "gui"))]
+        {
+            use clap::CommandFactory;
+            let mut cmd = Cli::command();
+            let _ = cmd.print_help();
+            println!();
+            return Ok(());
+        }
+    };
+
+    match command {
         Commands::Send {
             target,
             bitrate,
